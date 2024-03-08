@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use clap::Args;
 
 use crate::command::db_config::DBConfig;
+use crate::gcloud;
 
 #[derive(Args)]
 #[command(about = "Sync db")]
@@ -14,20 +15,20 @@ pub struct SyncDB {
 }
 
 impl SyncDB {
-    pub fn execute(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn execute(&self) -> Result<(), Box<dyn Error>> {
         let paths = self.db_config_paths()?;
-        let configs: Vec<DBConfig> = paths
-            .iter()
-            .map(|path| {
-                fs::read_to_string(path)
-                    .unwrap_or_else(|err| panic!("failed to read file, err={}, path={}", err, path.to_string_lossy()))
-            })
-            .map(|content| {
-                serde_json::from_str(&content)
-                    .unwrap_or_else(|err| panic!("failed to deserialize config, err={}, content={}", err, content))
-            })
-            .collect();
-        println!("{:?}", configs);
+
+        for path in paths {
+            let content = fs::read_to_string(path)?;
+
+            let config: DBConfig = serde_json::from_str(&content).unwrap_or_else(|err| panic!("{}", err));
+            config.validate()?;
+
+            let instance = gcloud::sql_admin::get_sql_instance(&config.project, &config.instance).await?;
+            println!("{:?}", instance);
+            println!("{:?}", instance.public_address());
+        }
+
         Ok(())
     }
 

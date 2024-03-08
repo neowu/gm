@@ -3,6 +3,7 @@ use command::{generate_zsh_completion::GenerateZshCompletion, sync_db::SyncDB};
 use std::error::Error;
 
 mod command;
+mod gcloud;
 
 #[derive(Parser)]
 #[command(author, version)]
@@ -19,10 +20,11 @@ pub enum Commands {
     GenerateZshCompletion(GenerateZshCompletion),
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     match &cli.command {
-        Some(Commands::DB(command)) => command.execute(),
+        Some(Commands::DB(command)) => command.execute().await,
         Some(Commands::GenerateZshCompletion(command)) => command.execute(),
         None => panic!("not implemented"),
     }
