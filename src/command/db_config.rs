@@ -1,9 +1,6 @@
-use std::{
-    error::Error,
-    fmt::{self, Display, Formatter},
-};
-
 use serde::Deserialize;
+
+use crate::util::exception::Exception;
 
 #[derive(Deserialize, Debug)]
 pub(super) struct DBConfig {
@@ -47,31 +44,15 @@ enum Role {
 }
 
 impl DBConfig {
-    pub(crate) fn validate(&self) -> Result<(), Box<dyn Error>> {
+    pub(crate) fn validate(&self) -> Result<(), Exception> {
         for user in &self.users {
             if user.name.len() > 32 {
-                return Err(Box::new(ConfigError {
-                    message: format!("db user name must be no longer than 32, user={}", user.name),
-                }));
+                return Err(Exception::new(&format!(
+                    "db user name must be no longer than 32, user={}",
+                    user.name
+                )));
             }
         }
         Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct ConfigError {
-    message: String,
-}
-
-impl Display for ConfigError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl Error for ConfigError {
-    fn description(&self) -> &str {
-        &self.message
     }
 }

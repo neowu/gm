@@ -4,6 +4,7 @@ use std::error::Error;
 
 mod command;
 mod gcloud;
+mod util;
 
 #[derive(Parser)]
 #[command(author, version)]
