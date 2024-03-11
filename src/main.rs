@@ -4,6 +4,7 @@ use std::error::Error;
 
 mod command;
 mod gcloud;
+mod mysql;
 mod util;
 
 #[derive(Parser)]
