@@ -747,7 +747,7 @@ checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 
 [[package]]
 name = "gm"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "base64 0.22.0",
  "clap",
@@ -757,6 +757,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "strfmt",
  "tokio",
  "uuid",
 ]
@@ -1941,6 +1942,12 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "strfmt"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a8348af2d9fc3258c8733b8d9d8db2e56f54b2363a4b5b81585c7875ed65e65"
 
 [[package]]
 name = "strsim"

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+    name: {name}
+    namespace: {ns}
+spec:
+    clusterIP: None
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+    name: {name}
+    namespace: {ns}
+subsets:
+- addresses:
+    - ip: {private_ip}
