@@ -1,76 +1,123 @@
 use std::error::Error;
-use std::fs::{self};
-use std::path::PathBuf;
+use std::fs::{self, create_dir_all};
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 
 use crate::command::db_config::DBConfig;
 use crate::gcloud::{secret_manager, sql_admin};
 use crate::mysql::MySQLClient;
+use crate::util::exception::Exception;
 use crate::util::json;
 
 #[derive(Args)]
 #[command(about = "Sync db")]
 pub struct SyncDB {
-    #[arg(long, help = "conf path")]
-    conf: Option<String>,
+    #[arg(long, help = "env path")]
+    env: Option<String>,
 }
 
 impl SyncDB {
     pub async fn execute(&self) -> Result<(), Box<dyn Error>> {
-        let paths = self.db_config_paths()?;
+        let env_dir = self.env.as_ref().map(Path::new).unwrap_or_else(|| Path::new("."));
+        println!("env: {}", fs::canonicalize(env_dir)?.to_string_lossy());
+        if !env_dir.exists() {
+            return Err(Box::new(Exception::new(&format!(
+                "env dir doesn't exist, dir={}",
+                env_dir.to_string_lossy()
+            ))));
+        }
+
+        let paths = db_config_paths(env_dir)?;
 
         for path in paths {
+            println!("sync db config, config={}", path.to_string_lossy());
             let content = fs::read_to_string(path)?;
             let config: DBConfig = json::from_json(&content)?;
             config.validate()?;
 
-            self.sync(config).await?;
+            let instance = sql_admin::get_sql_instance(&config.project, &config.instance).await?;
+            let public_ip = instance.public_address()?;
+            let private_ip = instance.private_address()?;
+            sync_users(&config, public_ip).await?;
+            sync_kube_endpoints(&config, env_dir, private_ip)?;
         }
 
         Ok(())
     }
+}
 
-    async fn sync(&self, config: DBConfig) -> Result<(), Box<dyn Error>> {
-        let instance = sql_admin::get_sql_instance(&config.project, &config.instance).await?;
-        let public_ip = instance.public_address().expect("public ip must not be null");
-        let root_password = secret_manager::get_or_create(&config.project, &config.root_secret, &config.env).await?;
-        sql_admin::set_root_password(&config.project, &config.instance, &root_password).await?;
+async fn sync_users(config: &DBConfig, public_ip: &str) -> Result<(), Box<dyn Error>> {
+    let root_password = secret_manager::get_or_create(&config.project, &config.root_secret, &config.env).await?;
+    sql_admin::set_root_password(&config.project, &config.instance, &root_password).await?;
 
-        let mut mysql = MySQLClient::new(public_ip, "root", &root_password)?;
+    let mut mysql = MySQLClient::new(public_ip, "root", &root_password)?;
 
-        for user in &config.users {
-            match user.auth {
-                crate::command::db_config::Auth::IAM => mysql.grant_user_privileges(&user.name, &config.dbs(user), &user.privileges())?,
-                crate::command::db_config::Auth::PASSWORD => {
-                    let password = secret_manager::get_or_create(&config.project, user.secret.as_ref().unwrap().as_str(), &config.env).await?;
-                    mysql.create_user(&user.name, &password)?;
-                    mysql.grant_user_privileges(&user.name, &config.dbs(user), &user.privileges())?
-                }
+    for user in &config.users {
+        match user.auth {
+            crate::command::db_config::Auth::Iam => mysql.grant_user_privileges(&user.name, &config.dbs(user), &user.privileges())?,
+            crate::command::db_config::Auth::Password => {
+                let password = secret_manager::get_or_create(&config.project, user.secret.as_ref().unwrap(), &config.env).await?;
+                mysql.create_user(&user.name, &password)?;
+                mysql.grant_user_privileges(&user.name, &config.dbs(user), &user.privileges())?
             }
         }
-
-        Ok(())
     }
 
-    fn db_config_paths(&self) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-        let db_dir = self.conf.as_ref().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("db"));
+    Ok(())
+}
 
-        if !db_dir.exists() {
-            return Err((format!("db dir doesn't exist, dir={}", db_dir.to_string_lossy())).into());
-        }
-
-        let paths: Vec<PathBuf> = fs::read_dir(&db_dir)?
-            .flatten()
-            .filter(|entry| {
-                if let Some(file_name) = entry.file_name().to_str() {
-                    return file_name.ends_with(".json");
-                }
-                false
-            })
-            .map(|entry| entry.path())
-            .collect();
-
-        Ok(paths)
+fn sync_kube_endpoints(config: &DBConfig, env_dir: &Path, private_ip: &str) -> Result<(), Box<dyn Error>> {
+    for endpoint in &config.endpoints {
+        let endpoint_path = env_dir.join(&endpoint.path);
+        create_dir_all(endpoint_path.parent().unwrap())?;
+        let name = &endpoint.name;
+        let ns = &endpoint.ns;
+        fs::write(
+            endpoint_path,
+            format!(
+                "apiVersion: v1
+kind: Service
+metadata:
+    name: {name}
+    namespace: {ns}
+spec:
+    clusterIP: None
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+    name: {name}
+    namespace: {ns}
+subsets:
+- addresses:
+    - ip: {private_ip}"
+            ),
+        )?
     }
+    Ok(())
+}
+
+fn db_config_paths(env_dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let db_dir = env_dir.join("db");
+
+    if !db_dir.exists() {
+        return Err(Box::new(Exception::new(&format!(
+            "db dir doesn't exist, dir={}",
+            db_dir.to_string_lossy()
+        ))));
+    }
+
+    let paths: Vec<PathBuf> = fs::read_dir(&db_dir)?
+        .flatten()
+        .filter(|entry| {
+            if let Some(file_name) = entry.file_name().to_str() {
+                return file_name.ends_with(".json");
+            }
+            false
+        })
+        .map(|entry| entry.path())
+        .collect();
+
+    Ok(paths)
 }

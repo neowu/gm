@@ -1,7 +1,10 @@
+use crate::util::exception::Exception;
+
 use super::client;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct GetSQLInstanceResponse {
     kind: String,
@@ -23,14 +26,27 @@ struct User {
     password: String,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct Operation {
     kind: String,
 }
 
 impl GetSQLInstanceResponse {
-    pub fn public_address(&self) -> Option<&String> {
-        self.addresses.iter().find(|ip| ip.r#type == "PRIMARY").map(|ip| &ip.address)
+    pub fn public_address(&self) -> Result<&str, Exception> {
+        self.addresses
+            .iter()
+            .find(|ip| ip.r#type == "PRIMARY")
+            .map(|ip| ip.address.as_str())
+            .ok_or(Exception::new("public ip must not be null"))
+    }
+
+    pub(crate) fn private_address(&self) -> Result<&str, Exception> {
+        self.addresses
+            .iter()
+            .find(|ip| ip.r#type == "PRIVATE")
+            .map(|ip| ip.address.as_str())
+            .ok_or(Exception::new("private ip must not be null"))
     }
 }
 

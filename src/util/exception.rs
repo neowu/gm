@@ -10,8 +10,8 @@ pub struct Exception {
 }
 
 impl Exception {
-    pub fn new(message: &str) -> Exception {
-        Exception {
+    pub fn new(message: &str) -> Self {
+        Self {
             message: message.to_string(),
             trace: Backtrace::capture().to_string(),
         }

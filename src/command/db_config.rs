@@ -7,30 +7,36 @@ pub(super) struct DBConfig {
     pub project: String,
     pub env: String,
     pub instance: String,
-    pub kube: Kube,
     #[serde(rename(deserialize = "rootSecret"))]
     pub root_secret: String,
     pub dbs: Vec<String>,
     pub users: Vec<User>,
+    pub endpoints: Vec<Endpoint>,
 }
 
 impl DBConfig {
-    pub fn dbs(&self, user: &User) -> Vec<String> {
-        if let Role::MIGRATION = user.role {
-            return vec!["*".to_string()]; // for REPLICATION, scope is global, otherwise "ERROR 1221 (HY000): Incorrect usage of DB GRANT and GLOBAL PRIVILEGES"
+    pub(crate) fn validate(&self) -> Result<(), Exception> {
+        for user in &self.users {
+            if user.name.len() > 32 {
+                return Err(Exception::new(&format!("db user name must be no longer than 32, user={}", user.name)));
+            }
+            if let (Auth::Password, None) = (&user.auth, &user.secret) {
+                return Err(Exception::new(&format!("db password user must have secret, user={}", user.name)));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn dbs<'a>(&'a self, user: &'a User) -> Vec<&'a str> {
+        if let Role::Migration = user.role {
+            return vec!["*"]; // for REPLICATION, scope is global, otherwise "ERROR 1221 (HY000): Incorrect usage of DB GRANT and GLOBAL PRIVILEGES"
         }
 
         match &user.db {
-            Some(db) => vec![db.to_string()],
-            None => self.dbs.clone(),
+            Some(db) => vec![db],
+            None => self.dbs.iter().map(|s| s.as_str()).collect(),
         }
     }
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Kube {
-    pub name: String,
-    pub zone: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -45,35 +51,37 @@ pub struct User {
 impl User {
     pub fn privileges(&self) -> Vec<&str> {
         match self.role {
-            Role::APP => vec!["SELECT", "INSERT", "UPDATE", "DELETE"],
-            Role::MIGRATION => vec!["CREATE", "DROP", "INDEX", "ALTER", "EXECUTE", "SELECT", "INSERT", "UPDATE", "DELETE"],
-            Role::VIEWER => vec!["SELECT"],
-            Role::REPLICATION => vec!["REPLICATION SLAVE", "SELECT", "RELOAD", "REPLICATION CLIENT", "LOCK TABLES", "EXECUTE"],
+            Role::App => vec!["SELECT", "INSERT", "UPDATE", "DELETE"],
+            Role::Migration => vec!["CREATE", "DROP", "INDEX", "ALTER", "EXECUTE", "SELECT", "INSERT", "UPDATE", "DELETE"],
+            Role::Viewer => vec!["SELECT"],
+            Role::Replication => vec!["REPLICATION SLAVE", "SELECT", "RELOAD", "REPLICATION CLIENT", "LOCK TABLES", "EXECUTE"],
         }
     }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Endpoint {
+    pub name: String,
+    pub ns: String,
+    pub path: String,
 }
 
 #[derive(Deserialize, Debug)]
 pub enum Auth {
-    IAM,
-    PASSWORD,
+    #[serde(rename(deserialize = "IAM"))]
+    Iam,
+    #[serde(rename(deserialize = "PASSWORD"))]
+    Password,
 }
 
 #[derive(Deserialize, Debug)]
 pub enum Role {
-    APP,
-    MIGRATION,
-    VIEWER,
-    REPLICATION,
-}
-
-impl DBConfig {
-    pub(crate) fn validate(&self) -> Result<(), Exception> {
-        for user in &self.users {
-            if user.name.len() > 32 {
-                return Err(Exception::new(&format!("db user name must be no longer than 32, user={}", user.name)));
-            }
-        }
-        Ok(())
-    }
+    #[serde(rename(deserialize = "APP"))]
+    App,
+    #[serde(rename(deserialize = "MIGRATION"))]
+    Migration,
+    #[serde(rename(deserialize = "VIEWER"))]
+    Viewer,
+    #[serde(rename(deserialize = "REPLICATION"))]
+    Replication,
 }

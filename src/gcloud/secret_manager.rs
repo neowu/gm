@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use super::client::{self, NotFoundError};
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct AccessSecretVersion {
     name: String,
@@ -31,6 +32,7 @@ struct Replication {
 #[derive(Serialize, Debug, Default)]
 struct Automatic {}
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct CreateSecretResponse {
     name: String,
@@ -41,6 +43,7 @@ struct AddSecretVersionRequest {
     payload: SecretPayload,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct SecretVersion {
     name: String,
@@ -87,10 +90,6 @@ pub async fn add_secret_version(project: &str, name: &str, value: &str) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use uuid::Uuid;
-
-    use crate::gcloud::secret_manager::CreateSecretRequest;
-
     #[test]
     fn test_secret() {}
 }

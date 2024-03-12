@@ -9,7 +9,7 @@ mod util;
 
 #[derive(Parser)]
 #[command(author, version)]
-#[command(about = "hello world cli")]
+#[command(about = "gcloud manager cli")]
 pub struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,

@@ -1,16 +1,16 @@
 use std::error::Error;
 
-use mysql::{params, prelude::Queryable, Conn, OptsBuilder};
+use mysql::{prelude::Queryable, Conn, OptsBuilder};
 
 pub struct MySQLClient {
     conn: Conn,
 }
 
 impl MySQLClient {
-    pub fn new(host: &str, user: &str, password: &str) -> Result<MySQLClient, Box<dyn Error>> {
+    pub fn new(host: &str, user: &str, password: &str) -> Result<Self, Box<dyn Error>> {
         let opts = OptsBuilder::new().ip_or_hostname(Some(host)).user(Some(user)).pass(Some(password));
         let conn = Conn::new(opts)?;
-        Ok(MySQLClient { conn })
+        Ok(Self { conn })
     }
 
     pub fn create_user(&mut self, user: &str, password: &str) -> Result<(), Box<dyn Error>> {
@@ -24,7 +24,7 @@ impl MySQLClient {
         Ok(())
     }
 
-    pub fn grant_user_privileges(&mut self, user: &str, dbs: &Vec<String>, privileges: &Vec<&str>) -> Result<(), Box<dyn Error>> {
+    pub fn grant_user_privileges(&mut self, user: &str, dbs: &[&str], privileges: &[&str]) -> Result<(), Box<dyn Error>> {
         println!("grant user privileges, user={}, dbs={:?}, privileges={:?}", user, dbs, privileges);
 
         for db in dbs {
@@ -40,5 +40,5 @@ fn escape_db(db: &str) -> String {
     if db == "*" {
         return "*".to_string();
     }
-    format!("`{}`", db)
+    '`'.to_string() + db + "`"
 }
