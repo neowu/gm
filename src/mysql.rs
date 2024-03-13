@@ -1,6 +1,7 @@
+use mysql::prelude::Queryable;
+use mysql::Conn;
+use mysql::OptsBuilder;
 use std::error::Error;
-
-use mysql::{prelude::Queryable, Conn, OptsBuilder};
 
 pub struct MySQLClient {
     conn: Conn,

@@ -1,7 +1,7 @@
+use crate::gcloud;
 use crate::util::exception::Exception;
-
-use super::client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::error::Error;
 
 #[allow(dead_code)]
@@ -41,7 +41,7 @@ impl GetSQLInstanceResponse {
             .ok_or(Exception::new("public ip must not be null"))
     }
 
-    pub(crate) fn private_address(&self) -> Result<&str, Exception> {
+    pub fn private_address(&self) -> Result<&str, Exception> {
         self.addresses
             .iter()
             .find(|ip| ip.r#type == "PRIVATE")
@@ -52,13 +52,13 @@ impl GetSQLInstanceResponse {
 
 pub async fn get_sql_instance(project: &str, instance: &str) -> Result<GetSQLInstanceResponse, Box<dyn Error>> {
     let url = format!("https://sqladmin.googleapis.com/v1/projects/{project}/instances/{instance}");
-    client::get(&url).await
+    gcloud::get(&url).await
 }
 
 pub async fn set_root_password(project: &str, instance: &str, password: &str) -> Result<(), Box<dyn Error>> {
     println!("change sql instance root password, instance={instance}");
     let url = format!("https://sqladmin.googleapis.com/v1/projects/{project}/instances/{instance}/users");
-    let _: Operation = client::post(
+    let _: Operation = gcloud::post(
         &url,
         &User {
             name: "root".to_owned(),

@@ -1,10 +1,11 @@
-use std::{collections::HashMap, error::Error};
-
-use base64::{prelude::BASE64_STANDARD, Engine};
-use serde::{Deserialize, Serialize};
+use crate::gcloud;
+use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
+use serde::Deserialize;
+use serde::Serialize;
+use std::collections::HashMap;
+use std::error::Error;
 use uuid::Uuid;
-
-use super::client::{self, NotFoundError};
 
 #[allow(dead_code)]
 #[derive(Deserialize, Debug)]
@@ -51,14 +52,14 @@ struct SecretVersion {
 
 pub async fn get_or_create(project: &str, name: &str, env: &str) -> Result<String, Box<dyn Error>> {
     let url = format!("https://secretmanager.googleapis.com/v1/projects/{project}/secrets/{name}/versions/latest:access");
-    let response: Result<AccessSecretVersion, Box<dyn Error>> = client::get(&url).await;
+    let response: Result<AccessSecretVersion, Box<dyn Error>> = gcloud::get(&url).await;
 
     match response {
         Ok(version) => {
             let data = BASE64_STANDARD.decode(version.payload.data)?;
             Ok(String::from_utf8(data)?)
         }
-        Err(not_found) if not_found.is::<NotFoundError>() => {
+        Err(not_found) if not_found.is::<gcloud::NotFoundError>() => {
             println!("secret not found, create new one, name={}", name);
             create(project, name, env).await?;
             let value = Uuid::new_v4().to_string();
@@ -73,7 +74,7 @@ pub async fn create(project: &str, name: &str, env: &str) -> Result<(), Box<dyn 
     let url = format!("https://secretmanager.googleapis.com/v1/projects/{project}/secrets?secretId={name}");
     let mut create_secret_request = CreateSecretRequest::default();
     create_secret_request.labels.insert("env".to_owned(), env.to_string());
-    let _: CreateSecretResponse = client::post(&url, &create_secret_request).await?;
+    let _: CreateSecretResponse = gcloud::post(&url, &create_secret_request).await?;
     Ok(())
 }
 
@@ -84,7 +85,7 @@ pub async fn add_secret_version(project: &str, name: &str, value: &str) -> Resul
             data: BASE64_STANDARD.encode(value),
         },
     };
-    let _: SecretVersion = client::post(&url, &add_secret_request).await?;
+    let _: SecretVersion = gcloud::post(&url, &add_secret_request).await?;
     Ok(())
 }
 

@@ -1,16 +1,20 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::fs::{self, create_dir_all};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Args;
 use strfmt::Format;
 
 use crate::command::db_config::DBConfig;
-use crate::gcloud::{secret_manager, sql_admin};
+use crate::gcloud::secret_manager;
+use crate::gcloud::sql_admin;
+use crate::kube;
 use crate::mysql::MySQLClient;
 use crate::util::exception::Exception;
 use crate::util::json;
+
+use super::db_config::Endpoint;
 
 #[derive(Args)]
 #[command(about = "Sync db")]
@@ -70,16 +74,16 @@ async fn sync_users(config: &DBConfig, public_ip: &str) -> Result<(), Box<dyn Er
 }
 
 fn sync_kube_endpoints(config: &DBConfig, env_dir: &Path, private_ip: &str) -> Result<(), Box<dyn Error>> {
-    let endpoint_template = include_str!("endpoint_template.yml");
     for endpoint in &config.endpoints {
         let endpoint_path = env_dir.join(&endpoint.path);
-        create_dir_all(endpoint_path.parent().unwrap())?;
+        fs::create_dir_all(endpoint_path.parent().unwrap())?;
 
-        let mut params = HashMap::new();
-        params.insert("name".to_string(), endpoint.name.as_str());
-        params.insert("ns".to_string(), endpoint.name.as_str());
-        params.insert("private_ip".to_string(), private_ip);
-        let content = endpoint_template.format(&params)?;
+        let content = kube::endpoint::Endpoint {
+            name: &endpoint.name,
+            ns: &endpoint.ns,
+            ip: private_ip,
+        }
+        .to_resource();
         fs::write(endpoint_path, content)?
     }
     Ok(())

@@ -1,8 +1,6 @@
-use std::{
-    backtrace::Backtrace,
-    error::Error,
-    fmt::{self, Debug, Display, Formatter},
-};
+use std::backtrace::Backtrace;
+use std::error::Error;
+use std::fmt;
 
 pub struct Exception {
     message: String,
@@ -18,14 +16,14 @@ impl Exception {
     }
 }
 
-impl Debug for Exception {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+impl fmt::Debug for Exception {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Exception: {}\ntrace:\n{}", self.message, self.trace)
     }
 }
 
-impl Display for Exception {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+impl fmt::Display for Exception {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
