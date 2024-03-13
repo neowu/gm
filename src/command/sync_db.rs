@@ -1,10 +1,8 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use strfmt::Format;
 
 use crate::command::db_config::DBConfig;
 use crate::gcloud::secret_manager;
@@ -13,8 +11,6 @@ use crate::kube;
 use crate::mysql::MySQLClient;
 use crate::util::exception::Exception;
 use crate::util::json;
-
-use super::db_config::Endpoint;
 
 #[derive(Args)]
 #[command(about = "Sync db")]

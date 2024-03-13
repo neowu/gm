@@ -10,24 +10,22 @@ impl Endpoint<'_> {
         let ns = &self.ns;
         let ip = &self.ip;
         format!(
-            r#"
-apiVersion: v1
+            r#"apiVersion: v1
 kind: Service
 metadata:
-    name: {name}
-    namespace: {ns}
+  name: {name}
+  namespace: {ns}
 spec:
-    clusterIP: None
+  clusterIP: None
 ---
 apiVersion: v1
 kind: Endpoints
 metadata:
-    name: {name}
-    namespace: {ns}
+  name: {name}
+  namespace: {ns}
 subsets:
 - addresses:
-    - ip: {ip}        
-"#
+  - ip: {ip}"#
         )
     }
 }
