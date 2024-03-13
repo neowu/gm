@@ -41,11 +41,9 @@ pub(in crate::gcloud) async fn get<T>(url: &str) -> Result<T, Box<dyn Error>>
 where
     T: DeserializeOwned,
 {
-    let token = env::var("GCLOUD_AUTH_TOKEN").expect("please set GCLOUD_AUTH_TOKEN env");
-
     let response = http_client()
         .get(url)
-        .bearer_auth(token)
+        .bearer_auth(token())
         .header("Accept", "application/json")
         .send()
         .await?;
@@ -70,12 +68,10 @@ where
     Request: Serialize,
     Response: DeserializeOwned,
 {
-    let token = env::var("GCLOUD_AUTH_TOKEN").expect("please set GCLOUD_AUTH_TOKEN env");
-
     let body = serde_json::to_string(request)?;
     let response = http_client()
         .post(url)
-        .bearer_auth(token)
+        .bearer_auth(token())
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .body(body)
@@ -95,4 +91,8 @@ where
     }
 
     Ok(serde_json::from_str(&text)?)
+}
+
+fn token() -> String {
+    env::var("GCLOUD_AUTH_TOKEN").expect("please set GCLOUD_AUTH_TOKEN env")
 }

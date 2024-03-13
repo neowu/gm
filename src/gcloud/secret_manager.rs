@@ -88,9 +88,3 @@ pub async fn add_secret_version(project: &str, name: &str, value: &str) -> Resul
     let _: SecretVersion = gcloud::post(&url, &add_secret_request).await?;
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_secret() {}
-}
