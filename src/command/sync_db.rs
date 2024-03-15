@@ -22,13 +22,13 @@ pub struct SyncDB {
 impl SyncDB {
     pub async fn execute(&self) -> Result<(), Box<dyn Error>> {
         let env_dir = self.env.as_ref().map(Path::new).unwrap_or_else(|| Path::new("."));
-        println!("env: {}", fs::canonicalize(env_dir)?.to_string_lossy());
         if !env_dir.exists() {
             return Err(Box::new(Exception::new(&format!(
                 "env dir doesn't exist, dir={}",
                 env_dir.to_string_lossy()
             ))));
         }
+        println!("env: {}", fs::canonicalize(env_dir)?.to_string_lossy());
 
         let paths = db_config_paths(env_dir)?;
 
