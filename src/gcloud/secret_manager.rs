@@ -1,11 +1,13 @@
 use crate::gcloud;
+use crate::util::exception::Exception;
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::error::Error;
 use uuid::Uuid;
+
+use super::GCloudError;
 
 #[allow(dead_code)]
 #[derive(Deserialize, Debug)]
@@ -50,16 +52,18 @@ struct SecretVersion {
     name: String,
 }
 
-pub async fn get_or_create(project: &str, name: &str, env: &str) -> Result<String, Box<dyn Error>> {
+pub async fn get_or_create(project: &str, name: &str, env: &str) -> Result<String, GCloudError> {
     let url = format!("https://secretmanager.googleapis.com/v1/projects/{project}/secrets/{name}/versions/latest:access");
-    let response: Result<AccessSecretVersion, Box<dyn Error>> = gcloud::get(&url).await;
+    let response: Result<AccessSecretVersion, GCloudError> = gcloud::get(&url).await;
 
     match response {
         Ok(version) => {
-            let data = BASE64_STANDARD.decode(version.payload.data)?;
-            Ok(String::from_utf8(data)?)
+            let data = BASE64_STANDARD
+                .decode(version.payload.data)
+                .map_err(|err| GCloudError::Other(Exception::new(&err.to_string())))?;
+            Ok(String::from_utf8(data).map_err(|err| GCloudError::Other(Exception::new(&err.to_string())))?)
         }
-        Err(not_found) if not_found.is::<gcloud::NotFoundError>() => {
+        Err(GCloudError::NotFound { response: _ }) => {
             println!("secret not found, create new one, name={}", name);
             create(project, name, env).await?;
             let value = Uuid::new_v4().to_string();
@@ -70,7 +74,7 @@ pub async fn get_or_create(project: &str, name: &str, env: &str) -> Result<Strin
     }
 }
 
-pub async fn create(project: &str, name: &str, env: &str) -> Result<(), Box<dyn Error>> {
+pub async fn create(project: &str, name: &str, env: &str) -> Result<(), GCloudError> {
     let url = format!("https://secretmanager.googleapis.com/v1/projects/{project}/secrets?secretId={name}");
     let mut create_secret_request = CreateSecretRequest::default();
     create_secret_request.labels.insert("env".to_owned(), env.to_string());
@@ -78,7 +82,7 @@ pub async fn create(project: &str, name: &str, env: &str) -> Result<(), Box<dyn 
     Ok(())
 }
 
-pub async fn add_secret_version(project: &str, name: &str, value: &str) -> Result<(), Box<dyn Error>> {
+pub async fn add_secret_version(project: &str, name: &str, value: &str) -> Result<(), GCloudError> {
     let url = format!("https://secretmanager.googleapis.com/v1/projects/{project}/secrets/{name}:addVersion");
     let add_secret_request = AddSecretVersionRequest {
         payload: SecretPayload {

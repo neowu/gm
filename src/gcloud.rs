@@ -1,43 +1,47 @@
 use crate::util::exception::Exception;
+use crate::util::json;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::env;
 use std::error::Error;
-use std::fmt;
-use std::fmt::Display;
-use std::fmt::Formatter;
+use std::fmt::{self, Debug};
 use std::sync::OnceLock;
 
 pub mod secret_manager;
 pub mod sql_admin;
 
-#[derive(Debug, Clone)]
-pub struct NotFoundError {
-    pub response: String,
+#[derive(Debug)]
+pub enum GCloudError {
+    NotFound { response: String },
+    Other(Exception),
 }
 
-impl NotFoundError {
-    pub fn new(response: &str) -> NotFoundError {
-        NotFoundError {
-            response: response.to_string(),
-        }
+impl fmt::Display for GCloudError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 
-impl Display for NotFoundError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.response)
+impl From<reqwest::Error> for GCloudError {
+    fn from(err: reqwest::Error) -> Self {
+        GCloudError::Other(Exception::new(&err.to_string()))
     }
 }
 
-impl Error for NotFoundError {}
+impl From<Exception> for GCloudError {
+    fn from(err: Exception) -> Self {
+        GCloudError::Other(err)
+    }
+}
+
+impl Error for GCloudError {}
 
 fn http_client() -> &'static reqwest::Client {
     static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     HTTP_CLIENT.get_or_init(reqwest::Client::new)
 }
 
-pub(in crate::gcloud) async fn get<T>(url: &str) -> Result<T, Box<dyn Error>>
+pub(in crate::gcloud) async fn get<T>(url: &str) -> Result<T, GCloudError>
 where
     T: DeserializeOwned,
 {
@@ -50,25 +54,18 @@ where
 
     let status = response.status();
     let text = response.text().await?;
-    if status == 404 {
-        return Err(Box::new(NotFoundError::new(&text)));
+    if let Some(err) = validate(status, &text) {
+        return Err(err);
     }
-    if status != 200 {
-        return Err(Box::new(Exception::new(&format!(
-            "failed to call api, status={}, response={}",
-            status, text
-        ))));
-    }
-
-    Ok(serde_json::from_str(&text)?)
+    Ok(json::from_json(&text)?)
 }
 
-pub(in crate::gcloud) async fn post<Request, Response>(url: &str, request: &Request) -> Result<Response, Box<dyn Error>>
+pub(in crate::gcloud) async fn post<Request, Response>(url: &str, request: &Request) -> Result<Response, GCloudError>
 where
-    Request: Serialize,
+    Request: Serialize + Debug,
     Response: DeserializeOwned,
 {
-    let body = serde_json::to_string(request)?;
+    let body = json::to_json(request)?;
     let response = http_client()
         .post(url)
         .bearer_auth(token())
@@ -80,17 +77,23 @@ where
 
     let status = response.status();
     let text = response.text().await?;
+    if let Some(err) = validate(status, &text) {
+        return Err(err);
+    }
+    Ok(json::from_json(&text)?)
+}
+
+fn validate(status: reqwest::StatusCode, text: &String) -> Option<GCloudError> {
     if status == 404 {
-        return Err(Box::new(NotFoundError::new(&text)));
+        return Some(GCloudError::NotFound { response: text.clone() });
     }
     if status != 200 {
-        return Err(Box::new(Exception::new(&format!(
+        return Some(GCloudError::Other(Exception::new(&format!(
             "failed to call api, status={}, response={}",
             status, text
         ))));
     }
-
-    Ok(serde_json::from_str(&text)?)
+    None
 }
 
 fn token() -> String {
