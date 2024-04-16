@@ -4,7 +4,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::env;
 use std::error::Error;
-use std::fmt::{self, Debug};
+use std::fmt::Debug;
+use std::fmt::{self};
 use std::sync::OnceLock;
 
 pub mod secret_manager;
@@ -35,6 +36,15 @@ impl From<Exception> for GCloudError {
 }
 
 impl Error for GCloudError {}
+
+impl GCloudError {
+    pub fn from<T>(error: T) -> Self
+    where
+        T: Error + 'static,
+    {
+        GCloudError::Other(Exception::new(&error.to_string()))
+    }
+}
 
 fn http_client() -> &'static reqwest::Client {
     static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();

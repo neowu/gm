@@ -2,6 +2,7 @@ use crate::gcloud;
 use crate::util::exception::Exception;
 use serde::Deserialize;
 use serde::Serialize;
+use tracing::info;
 
 use super::GCloudError;
 
@@ -57,7 +58,7 @@ pub async fn get_sql_instance(project: &str, instance: &str) -> Result<GetSQLIns
 }
 
 pub async fn set_root_password(project: &str, instance: &str, password: &str) -> Result<(), GCloudError> {
-    println!("change sql instance root password, instance={instance}");
+    info!("change sql instance root password, instance={instance}");
     let url = format!("https://sqladmin.googleapis.com/v1/projects/{project}/instances/{instance}/users");
     let _: Operation = gcloud::post(
         &url,

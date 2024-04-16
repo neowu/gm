@@ -5,6 +5,7 @@ use base64::Engine;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
+use tracing::info;
 use uuid::Uuid;
 
 use super::GCloudError;
@@ -61,10 +62,10 @@ pub async fn get_or_create(project: &str, name: &str, env: &str) -> Result<Strin
             let data = BASE64_STANDARD
                 .decode(version.payload.data)
                 .map_err(|err| GCloudError::Other(Exception::new(&err.to_string())))?;
-            Ok(String::from_utf8(data).map_err(|err| GCloudError::Other(Exception::new(&err.to_string())))?)
+            Ok(String::from_utf8(data).map_err(GCloudError::from)?)
         }
         Err(GCloudError::NotFound { response: _ }) => {
-            println!("secret not found, create new one, name={}", name);
+            info!("secret not found, create new one, name={}", name);
             create(project, name, env).await?;
             let value = Uuid::new_v4().to_string();
             add_secret_version(project, name, &value).await?;
@@ -77,7 +78,7 @@ pub async fn get_or_create(project: &str, name: &str, env: &str) -> Result<Strin
 pub async fn create(project: &str, name: &str, env: &str) -> Result<(), GCloudError> {
     let url = format!("https://secretmanager.googleapis.com/v1/projects/{project}/secrets?secretId={name}");
     let mut create_secret_request = CreateSecretRequest::default();
-    create_secret_request.labels.insert("env".to_owned(), env.to_string());
+    create_secret_request.labels.insert("env".to_string(), env.to_string());
     let _: CreateSecretResponse = gcloud::post(&url, &create_secret_request).await?;
     Ok(())
 }

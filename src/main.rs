@@ -1,6 +1,10 @@
-use clap::{Parser, Subcommand};
-use command::{generate_zsh_completion::GenerateZshCompletion, sync_db::SyncDB};
+use clap::Parser;
+use clap::Subcommand;
+use command::generate_zsh_completion::GenerateZshCompletion;
+use command::sync_db::SyncDB;
 use std::error::Error;
+use tracing::Level;
+use util::exception::Exception;
 
 mod command;
 mod gcloud;
@@ -24,7 +28,9 @@ pub enum Commands {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), Exception> {
+    tracing_subscriber::fmt().with_max_level(Level::INFO).with_line_number(true).init();
+
     let cli = Cli::parse();
     match &cli.command {
         Some(Commands::DB(command)) => command.execute().await,
