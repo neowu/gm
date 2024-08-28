@@ -25,7 +25,7 @@ impl DBConfig {
     }
 
     pub fn dbs<'a>(&'a self, user: &'a User) -> Vec<&'a str> {
-        if let Role::Migration = user.role {
+        if matches!(user.role, Role::Migration) || matches!(user.role, Role::Replication) {
             return vec!["*"]; // for REPLICATION, scope is global, otherwise "ERROR 1221 (HY000): Incorrect usage of DB GRANT and GLOBAL PRIVILEGES"
         }
 

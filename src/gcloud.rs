@@ -1,9 +1,14 @@
 use crate::util::http_client::HTTP_CLIENT;
 use crate::util::json;
+use log::info;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::env;
+use std::error::Error;
 use std::fmt::Debug;
+use std::process::Command;
+use std::process::Stdio;
+use std::sync::LazyLock;
 
 pub mod secret_manager;
 pub mod sql_admin;
@@ -14,11 +19,11 @@ where
 {
     let response = HTTP_CLIENT
         .get(url)
-        .bearer_auth(token())
+        .bearer_auth(TOKEN.to_string())
         .header("Accept", "application/json")
         .send()
         .await
-        .unwrap_or_else(|err| panic!("{err}"));
+        .unwrap_or_else(|err| panic!("{err}, source={:?}", err.source()));
 
     let status = response.status();
     let text = response.text().await.unwrap_or_else(|err| panic!("{err}"));
@@ -39,7 +44,7 @@ where
     let body = json::to_json(request);
     let response = HTTP_CLIENT
         .post(url)
-        .bearer_auth(token())
+        .bearer_auth(TOKEN.to_string())
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .body(body)
@@ -55,6 +60,20 @@ where
     json::from_json(&text)
 }
 
-fn token() -> String {
-    env::var("GCLOUD_AUTH_TOKEN").expect("please set GCLOUD_AUTH_TOKEN env")
-}
+static TOKEN: LazyLock<String> = LazyLock::new(|| {
+    let token = env::var("GCLOUD_AUTH_TOKEN");
+    if let Ok(token) = token {
+        info!("auth gcloud via GCLOUD_AUTH_TOKEN env");
+        return token;
+    }
+
+    info!("auth gcloud via gcloud auth print-access-token");
+    let output = Command::new("gcloud")
+        .args(["auth", "print-access-token"])
+        .stdout(Stdio::piped())
+        .output()
+        .unwrap_or_else(|err| panic!("please setup gcloud or set GCLOUD_AUTH_TOKEN env, err={err}"));
+
+    let token = String::from_utf8(output.stdout).expect("token should be in utf-8");
+    token.trim_ascii_end().to_string()
+});

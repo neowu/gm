@@ -37,5 +37,5 @@ fn escape_db(db: &str) -> String {
     if db == "*" {
         return "*".to_string();
     }
-    '`'.to_string() + db + "`"
+    format!("`{db}`")
 }

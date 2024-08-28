@@ -15,7 +15,3 @@ reqwest = { version = "0", features = ["json", "rustls-tls"], default-features =
 base64 = "0"
 uuid = { version = "1", features = ["v4"] }
 mysql = { version = "*", features = ["default-rustls"], default-features = false }
-
-[profile.release]
-strip = true
-lto = true
