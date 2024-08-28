@@ -51,7 +51,9 @@ impl GetSQLInstanceResponse {
 
 pub async fn get_sql_instance(project: &str, instance: &str) -> GetSQLInstanceResponse {
     let url = format!("https://sqladmin.googleapis.com/v1/projects/{project}/instances/{instance}");
-    gcloud::get(&url).await.expect("instance not found")
+    gcloud::get(&url)
+        .await
+        .unwrap_or_else(|| panic!("instance not found, instance={instance}"))
 }
 
 pub async fn set_root_password(project: &str, instance: &str, password: &str) {

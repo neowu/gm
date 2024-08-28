@@ -65,18 +65,17 @@ async fn sync_users(config: &DBConfig, public_ip: &str) {
 }
 
 fn sync_kube_endpoints(config: &DBConfig, env_dir: &Path, private_ip: &str) {
-    for endpoint in &config.endpoints {
-        let endpoint_path = env_dir.join(&endpoint.path);
-        fs::create_dir_all(endpoint_path.parent().expect("endpoint should have parent dir")).unwrap_or_else(|err| panic!("{err}"));
+    let endpoint_path = env_dir.join(&config.endpoint.path);
+    info!("write kube endpoint, path={}", endpoint_path.to_string_lossy());
+    fs::create_dir_all(endpoint_path.parent().expect("endpoint should have parent dir")).unwrap_or_else(|err| panic!("{err}"));
 
-        let content = kube::endpoint::Endpoint {
-            name: &endpoint.name,
-            ns: &endpoint.ns,
-            ip: private_ip,
-        }
-        .to_resource();
-        fs::write(endpoint_path, content).unwrap_or_else(|err| panic!("{err}"));
+    let contents = kube::endpoint::Endpoint {
+        name: &config.endpoint.name,
+        ns: &config.endpoint.ns,
+        ip: private_ip,
     }
+    .to_kube_config();
+    fs::write(endpoint_path, contents).unwrap_or_else(|err| panic!("{err}"));
 }
 
 fn db_config_paths(env_dir: &Path) -> Vec<PathBuf> {

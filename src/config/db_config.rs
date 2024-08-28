@@ -9,7 +9,7 @@ pub struct DBConfig {
     pub root_secret: String,
     pub dbs: Vec<String>,
     pub users: Vec<User>,
-    pub endpoints: Vec<Endpoint>,
+    pub endpoint: Endpoint,
 }
 
 impl DBConfig {

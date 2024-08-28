@@ -6,6 +6,7 @@ use serde::Serialize;
 use std::env;
 use std::error::Error;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::LazyLock;
@@ -19,7 +20,7 @@ where
 {
     let response = HTTP_CLIENT
         .get(url)
-        .bearer_auth(TOKEN.to_string())
+        .bearer_auth(TOKEN.deref())
         .header("Accept", "application/json")
         .send()
         .await
@@ -44,13 +45,13 @@ where
     let body = json::to_json(request);
     let response = HTTP_CLIENT
         .post(url)
-        .bearer_auth(TOKEN.to_string())
+        .bearer_auth(TOKEN.deref())
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .body(body)
         .send()
         .await
-        .unwrap_or_else(|err| panic!("{err}"));
+        .unwrap_or_else(|err| panic!("{err}, source={:?}", err.source()));
 
     let status = response.status();
     let text = response.text().await.unwrap_or_else(|err| panic!("{err}"));
@@ -75,5 +76,6 @@ static TOKEN: LazyLock<String> = LazyLock::new(|| {
         .unwrap_or_else(|err| panic!("please setup gcloud or set GCLOUD_AUTH_TOKEN env, err={err}"));
 
     let token = String::from_utf8(output.stdout).expect("token should be in utf-8");
+    // print token contains '\n' at ends
     token.trim_ascii_end().to_string()
 });
