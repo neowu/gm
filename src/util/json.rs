@@ -1,19 +1,18 @@
 use std::fmt;
 
-use crate::util::exception::Exception;
 use serde::de;
 use serde::Serialize;
 
-pub fn from_json<'a, T>(json: &'a str) -> Result<T, Exception>
+pub fn from_json<'a, T>(json: &'a str) -> T
 where
     T: de::Deserialize<'a>,
 {
-    serde_json::from_str(json).map_err(|err| Exception::from_with_context(err, &format!("json={json}")))
+    serde_json::from_str(json).unwrap_or_else(|err| panic!("failed to deserialize to json, json={json}, error={err}"))
 }
 
-pub fn to_json<T>(object: &T) -> Result<String, Exception>
+pub fn to_json<T>(object: &T) -> String
 where
     T: Serialize + fmt::Debug,
 {
-    serde_json::to_string(object).map_err(|err| Exception::from_with_context(err, &format!("object={object:?}")))
+    serde_json::to_string(object).unwrap_or_else(|err| panic!("failed to serialize to json, object={object:?}, error{err}"))
 }

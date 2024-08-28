@@ -1,9 +1,7 @@
 use serde::Deserialize;
 
-use crate::util::exception::Exception;
-
 #[derive(Deserialize, Debug)]
-pub(super) struct DBConfig {
+pub struct DBConfig {
     pub project: String,
     pub env: String,
     pub instance: String,
@@ -15,16 +13,15 @@ pub(super) struct DBConfig {
 }
 
 impl DBConfig {
-    pub(crate) fn validate(&self) -> Result<(), Exception> {
+    pub fn validate(&self) {
         for user in &self.users {
             if user.name.len() > 32 {
-                return Err(Exception::new(&format!("db user name must be no longer than 32, user={}", user.name)));
+                panic!("db user name must be no longer than 32, user={}", user.name);
             }
             if let (Auth::Password, None) = (&user.auth, &user.secret) {
-                return Err(Exception::new(&format!("db password user must have secret, user={}", user.name)));
+                panic!("db password user must have secret, user={}", user.name);
             }
         }
-        Ok(())
     }
 
     pub fn dbs<'a>(&'a self, user: &'a User) -> Vec<&'a str> {

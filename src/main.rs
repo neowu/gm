@@ -1,12 +1,10 @@
 use clap::Parser;
 use clap::Subcommand;
-use command::generate_zsh_completion::GenerateZshCompletion;
+use command::completion::Completion;
 use command::sync_db::SyncDB;
-use std::error::Error;
-use tracing::Level;
-use util::exception::Exception;
 
 mod command;
+mod config;
 mod gcloud;
 mod kube;
 mod mysql;
@@ -14,27 +12,28 @@ mod util;
 
 #[derive(Parser)]
 #[command(author, version)]
-#[command(about = "GCloud manager cli")]
+#[command(about = "gcloud manager cli")]
 pub struct Cli {
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Commands,
 }
 
 #[derive(Subcommand)]
 #[command(arg_required_else_help(true))]
 pub enum Commands {
+    #[command(about = "sync db")]
     DB(SyncDB),
-    GenerateZshCompletion(GenerateZshCompletion),
+    #[command(about = "generate shell completion")]
+    Completion(Completion),
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Exception> {
-    tracing_subscriber::fmt().with_max_level(Level::INFO).with_line_number(true).init();
+async fn main() {
+    env_logger::builder().filter_level(log::LevelFilter::Info).init();
 
     let cli = Cli::parse();
     match &cli.command {
-        Some(Commands::DB(command)) => command.execute().await,
-        Some(Commands::GenerateZshCompletion(command)) => command.execute(),
-        None => panic!("not implemented"),
+        Commands::DB(command) => command.execute().await,
+        Commands::Completion(command) => command.execute(),
     }
 }

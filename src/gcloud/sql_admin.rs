@@ -1,15 +1,12 @@
 use crate::gcloud;
-use crate::util::exception::Exception;
+use log::info;
 use serde::Deserialize;
 use serde::Serialize;
-use tracing::info;
 
-use super::GCloudError;
-
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct GetSQLInstanceResponse {
-    kind: String,
+    #[serde(rename(deserialize = "kind"))]
+    _kind: String,
     #[serde(rename(deserialize = "ipAddresses"))]
     addresses: Vec<IPAddress>,
 }
@@ -28,36 +25,36 @@ struct User {
     password: String,
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct Operation {
-    kind: String,
+    #[serde(rename(deserialize = "kind"))]
+    _kind: String,
 }
 
 impl GetSQLInstanceResponse {
-    pub fn public_address(&self) -> Result<&str, Exception> {
+    pub fn public_address(&self) -> &str {
         self.addresses
             .iter()
             .find(|ip| ip.r#type == "PRIMARY")
             .map(|ip| ip.address.as_str())
-            .ok_or(Exception::new("public ip must not be null"))
+            .expect("public ip should not be null")
     }
 
-    pub fn private_address(&self) -> Result<&str, Exception> {
+    pub fn private_address(&self) -> &str {
         self.addresses
             .iter()
             .find(|ip| ip.r#type == "PRIVATE")
             .map(|ip| ip.address.as_str())
-            .ok_or(Exception::new("private ip must not be null"))
+            .expect("private ip should not be null")
     }
 }
 
-pub async fn get_sql_instance(project: &str, instance: &str) -> Result<GetSQLInstanceResponse, GCloudError> {
+pub async fn get_sql_instance(project: &str, instance: &str) -> GetSQLInstanceResponse {
     let url = format!("https://sqladmin.googleapis.com/v1/projects/{project}/instances/{instance}");
-    gcloud::get(&url).await
+    gcloud::get(&url).await.expect("instance not found")
 }
 
-pub async fn set_root_password(project: &str, instance: &str, password: &str) -> Result<(), GCloudError> {
+pub async fn set_root_password(project: &str, instance: &str, password: &str) {
     info!("change sql instance root password, instance={instance}");
     let url = format!("https://sqladmin.googleapis.com/v1/projects/{project}/instances/{instance}/users");
     let _: Operation = gcloud::post(
@@ -68,6 +65,5 @@ pub async fn set_root_password(project: &str, instance: &str, password: &str) ->
             password: password.to_string(),
         },
     )
-    .await?;
-    Ok(())
+    .await;
 }
