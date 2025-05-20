@@ -22,6 +22,8 @@ pub struct SyncDB {
 
 impl SyncDB {
     pub async fn execute(&self) {
+        rustls::crypto::aws_lc_rs::default_provider().install_default().unwrap();
+
         let env_dir = self.env.as_deref().unwrap_or(Path::new("."));
         if !env_dir.exists() {
             panic!("env dir doesn't exist, dir={}", env_dir.to_string_lossy());
@@ -40,17 +42,21 @@ impl SyncDB {
             let instance = sql_admin::get_sql_instance(&config.project, &config.instance).await;
             let public_ip = instance.public_address();
             let private_ip = instance.private_address();
-            sync_users(&config, public_ip).await;
+            sync_db(&config, public_ip).await;
             sync_kube_endpoints(&config, env_dir, private_ip);
         }
     }
 }
 
-async fn sync_users(config: &DBConfig, public_ip: &str) {
+async fn sync_db(config: &DBConfig, public_ip: &str) {
     let root_password = secret_manager::get_or_create(&config.project, &config.root_secret, &config.env).await;
     sql_admin::set_root_password(&config.project, &config.instance, &root_password).await;
 
     let mut mysql = MySQLClient::new(public_ip, "root", &root_password);
+
+    for db in &config.dbs {
+        mysql.create_db(db);
+    }
 
     for user in &config.users {
         match user.auth {
