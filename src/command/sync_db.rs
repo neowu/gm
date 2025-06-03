@@ -9,6 +9,7 @@ use tracing::info;
 
 use crate::config::db_config::Auth;
 use crate::config::db_config::DBConfig;
+use crate::config::db_config::DBType;
 use crate::db::Database;
 use crate::gcloud::secret_manager;
 use crate::gcloud::sql_admin;
@@ -52,8 +53,12 @@ impl SyncDB {
 }
 
 async fn sync_db(config: &DBConfig, public_ip: &str) -> Result<()> {
+    let root_user = match config.db_type {
+        DBType::MySQL => "root",
+        DBType::PostgreSQL => "postgres",
+    };
     let root_password = secret_manager::get_or_create(&config.project, &config.root_secret, &config.env).await;
-    sql_admin::set_root_password(&config.project, &config.instance, &root_password).await;
+    sql_admin::set_password(&config.project, &config.instance, root_user, &root_password).await;
 
     let mut database = Database::create_database(&config.db_type, public_ip, &root_password).await?;
 
