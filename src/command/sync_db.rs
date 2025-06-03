@@ -69,7 +69,7 @@ async fn sync_db(config: &DBConfig, public_ip: &str) -> Result<()> {
     for user in &config.users {
         if let Auth::Password = user.auth {
             let password = secret_manager::get_or_create(&config.project, user.secret.as_ref().unwrap(), &config.env).await;
-            database.create_user(&user.name, &password).await?;
+            database.create_user(user, &password).await?;
         }
         database.grant_user_privileges(user, &config.dbs).await?;
     }

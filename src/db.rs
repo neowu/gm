@@ -28,9 +28,9 @@ impl Database {
         }
     }
 
-    pub async fn create_user(&mut self, user: &str, password: &str) -> Result<()> {
+    pub async fn create_user(&mut self, user: &User, password: &str) -> Result<()> {
         match self {
-            Database::MySQL(mysql) => mysql.create_user(user, password).await,
+            Database::MySQL(mysql) => mysql.create_user(&user.name, password).await,
             Database::PostgreSQL(postgresql) => postgresql.create_user(user, password).await,
         }
     }
