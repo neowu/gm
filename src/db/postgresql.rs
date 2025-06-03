@@ -20,10 +20,9 @@ impl PostgreSQL {
     }
 
     pub async fn create_db(&mut self, db: &str) -> Result<()> {
-        info!(db, "check if db exists");
-
         let pool = self.pool("postgres").await?;
 
+        info!(db, "check if db exists");
         let count: i64 = sqlx::query_scalar("SELECT COUNT(1) FROM pg_database WHERE datname = $1")
             .bind(db)
             .fetch_one(&pool)
@@ -34,6 +33,11 @@ impl PostgreSQL {
             let statement = format!(r#"CREATE DATABASE "{db}""#);
             execute(&pool, statement).await?;
         }
+
+        info!(db, "create pg_stat_statements extension");
+        let pool = self.pool(db).await?;
+        let statement = "CREATE EXTENSION IF NOT EXISTS pg_stat_statements".to_owned();
+        execute(&pool, statement).await?;
 
         Ok(())
     }
@@ -115,6 +119,7 @@ impl PostgreSQL {
 }
 
 async fn execute(pool: &Pool<Postgres>, statement: String) -> Result<()> {
+    info!(statement, "execute SQL");
     sqlx::query(&statement).execute(pool).await?;
     Ok(())
 }
