@@ -2,16 +2,17 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
+use anyhow::Result;
 use clap::Args;
 
-use log::info;
+use tracing::info;
 
-use crate::config::db_config;
+use crate::config::db_config::Auth;
 use crate::config::db_config::DBConfig;
+use crate::db::Database;
 use crate::gcloud::secret_manager;
 use crate::gcloud::sql_admin;
 use crate::kube;
-use crate::mysql::MySQLClient;
 use crate::util::json;
 
 #[derive(Args)]
@@ -21,7 +22,7 @@ pub struct SyncDB {
 }
 
 impl SyncDB {
-    pub async fn execute(&self) {
+    pub async fn execute(&self) -> Result<()> {
         rustls::crypto::aws_lc_rs::default_provider().install_default().unwrap();
 
         let env_dir = self.env.as_deref().unwrap_or(Path::new("."));
@@ -42,37 +43,38 @@ impl SyncDB {
             let instance = sql_admin::get_sql_instance(&config.project, &config.instance).await;
             let public_ip = instance.public_address();
             let private_ip = instance.private_address();
-            sync_db(&config, public_ip).await;
+            sync_db(&config, public_ip).await?;
             sync_kube_endpoints(&config, env_dir, private_ip);
         }
+
+        Ok(())
     }
 }
 
-async fn sync_db(config: &DBConfig, public_ip: &str) {
+async fn sync_db(config: &DBConfig, public_ip: &str) -> Result<()> {
     let root_password = secret_manager::get_or_create(&config.project, &config.root_secret, &config.env).await;
     sql_admin::set_root_password(&config.project, &config.instance, &root_password).await;
 
-    let mut mysql = MySQLClient::new(public_ip, "root", &root_password);
+    let mut database = Database::create_database(&config.db_type, public_ip, &root_password).await?;
 
     for db in &config.dbs {
-        mysql.create_db(db);
+        database.create_db(db).await?;
     }
 
     for user in &config.users {
-        match user.auth {
-            db_config::Auth::Iam => mysql.grant_user_privileges(&user.name, &config.dbs(user), &user.privileges()),
-            db_config::Auth::Password => {
-                let password = secret_manager::get_or_create(&config.project, user.secret.as_ref().unwrap(), &config.env).await;
-                mysql.create_user(&user.name, &password);
-                mysql.grant_user_privileges(&user.name, &config.dbs(user), &user.privileges())
-            }
+        if let Auth::Password = user.auth {
+            let password = secret_manager::get_or_create(&config.project, user.secret.as_ref().unwrap(), &config.env).await;
+            database.create_user(&user.name, &password).await?;
         }
+        database.grant_user_privileges(user, &config.dbs).await?;
     }
+
+    Ok(())
 }
 
 fn sync_kube_endpoints(config: &DBConfig, env_dir: &Path, private_ip: &str) {
     let endpoint_path = env_dir.join(&config.endpoint.path);
-    info!("write kube endpoint, path={}", endpoint_path.to_string_lossy());
+    info!(path = endpoint_path.to_str(), "write kube endpoint");
     fs::create_dir_all(endpoint_path.parent().expect("endpoint should have parent dir")).unwrap_or_else(|err| panic!("{err}"));
 
     let contents = kube::endpoint::Endpoint {

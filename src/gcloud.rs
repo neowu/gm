@@ -1,8 +1,7 @@
 use crate::util::http_client::HTTP_CLIENT;
 use crate::util::json;
-use log::info;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::env;
 use std::error::Error;
 use std::fmt::Debug;
@@ -10,6 +9,7 @@ use std::ops::Deref;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::LazyLock;
+use tracing::info;
 
 pub mod secret_manager;
 pub mod sql_admin;

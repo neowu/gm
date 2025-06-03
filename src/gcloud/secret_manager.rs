@@ -1,10 +1,10 @@
 use crate::gcloud;
-use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use log::info;
+use base64::prelude::BASE64_STANDARD;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
+use tracing::info;
 use uuid::Uuid;
 
 #[allow(dead_code)]
@@ -61,7 +61,7 @@ pub async fn get_or_create(project: &str, name: &str, env: &str) -> String {
             String::from_utf8(data).expect("data should be in utf-8")
         }
         None => {
-            info!("secret not found, create new one, name={}", name);
+            info!(name, "secret not found, create new one");
             create(project, name, env).await;
             let value = Uuid::new_v4().to_string();
             add_secret_version(project, name, &value).await;

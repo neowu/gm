@@ -1,13 +1,18 @@
+use anyhow::Result;
 use clap::Parser;
 use clap::Subcommand;
 use command::completion::Completion;
 use command::sync_db::SyncDB;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::Layer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 mod command;
 mod config;
+mod db;
 mod gcloud;
 mod kube;
-mod mysql;
 mod util;
 
 #[derive(Parser)]
@@ -28,12 +33,21 @@ pub enum Commands {
 }
 
 #[tokio::main]
-async fn main() {
-    env_logger::builder().filter_level(log::LevelFilter::Info).init();
+async fn main() -> Result<()> {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .compact()
+                .with_line_number(true)
+                .with_thread_ids(true)
+                .with_filter(LevelFilter::INFO),
+        )
+        .init();
 
     let cli = Cli::parse();
     match &cli.command {
-        Commands::DB(command) => command.execute().await,
+        Commands::DB(command) => command.execute().await?,
         Commands::Completion(command) => command.execute(),
     }
+    Ok(())
 }

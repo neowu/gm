@@ -5,11 +5,19 @@ pub struct DBConfig {
     pub project: String,
     pub env: String,
     pub instance: String,
+    #[serde(rename(deserialize = "type"))]
+    pub db_type: DBType,
     #[serde(rename(deserialize = "rootSecret"))]
     pub root_secret: String,
     pub dbs: Vec<String>,
     pub users: Vec<User>,
     pub endpoint: Endpoint,
+}
+
+#[derive(Deserialize, Debug)]
+pub enum DBType {
+    MySQL,
+    PostgreSQL,
 }
 
 impl DBConfig {
@@ -23,17 +31,6 @@ impl DBConfig {
             }
         }
     }
-
-    pub fn dbs<'a>(&'a self, user: &'a User) -> Vec<&'a str> {
-        if matches!(user.role, Role::Migration) || matches!(user.role, Role::Replication) {
-            return vec!["*"]; // for REPLICATION, scope is global, otherwise "ERROR 1221 (HY000): Incorrect usage of DB GRANT and GLOBAL PRIVILEGES"
-        }
-
-        match &user.db {
-            Some(db) => vec![db],
-            None => self.dbs.iter().map(|s| s.as_str()).collect(),
-        }
-    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -43,17 +40,6 @@ pub struct User {
     pub secret: Option<String>,
     pub db: Option<String>,
     pub role: Role,
-}
-
-impl User {
-    pub fn privileges(&self) -> Vec<&str> {
-        match self.role {
-            Role::App => vec!["SELECT", "INSERT", "UPDATE", "DELETE"],
-            Role::Migration => vec!["CREATE", "DROP", "INDEX", "ALTER", "EXECUTE", "SELECT", "INSERT", "UPDATE", "DELETE"],
-            Role::Viewer => vec!["SELECT"],
-            Role::Replication => vec!["REPLICATION SLAVE", "SELECT", "RELOAD", "REPLICATION CLIENT", "LOCK TABLES", "EXECUTE"],
-        }
-    }
 }
 
 #[derive(Deserialize, Debug)]

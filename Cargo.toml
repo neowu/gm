@@ -1,18 +1,19 @@
 [package]
 name = "gm"
-version = "0.5.3"
+version = "0.6.0"
 edition = "2024"
 
 [dependencies]
-log = "0"
-env_logger = "0"
+anyhow = { version = "*", features = ["backtrace"] }
+tracing = "*"
+tracing-subscriber = "*"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0", features = ["json", "rustls-tls"], default-features = false }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "postgres", "mysql"] }
 base64 = "0"
 uuid = { version = "1", features = ["v4"] }
-mysql = { version = "*", features = ["minimal-rust", "rustls-tls"], default-features = false }
 rustls = "*"

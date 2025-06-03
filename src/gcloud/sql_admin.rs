@@ -1,7 +1,7 @@
 use crate::gcloud;
-use log::info;
 use serde::Deserialize;
 use serde::Serialize;
+use tracing::info;
 
 #[derive(Deserialize, Debug)]
 pub struct GetSQLInstanceResponse {
@@ -57,7 +57,7 @@ pub async fn get_sql_instance(project: &str, instance: &str) -> GetSQLInstanceRe
 }
 
 pub async fn set_root_password(project: &str, instance: &str, password: &str) {
-    info!("change sql instance root password, instance={instance}");
+    info!(instance, "change sql instance root password");
     let url = format!("https://sqladmin.googleapis.com/v1/projects/{project}/instances/{instance}/users");
     let _: Operation = gcloud::post(
         &url,
