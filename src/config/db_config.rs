@@ -23,7 +23,7 @@ pub enum DBType {
 impl DBConfig {
     pub fn validate(&self) {
         for user in &self.users {
-            if user.name.len() > 32 {
+            if matches!(self.db_type, DBType::MySQL) && user.name.len() > 32 {
                 panic!("db user name must be no longer than 32, user={}", user.name);
             }
             if let (Auth::Password, None) = (&user.auth, &user.secret) {
