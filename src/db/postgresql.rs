@@ -34,10 +34,20 @@ impl PostgreSQL {
             execute(&pool, statement).await?;
         }
 
-        info!(db, "create pg_stat_statements extension");
+        info!(db, "update db");
         let pool = self.pool(db).await?;
-        let statement = "CREATE EXTENSION IF NOT EXISTS pg_stat_statements".to_owned();
-        execute(&pool, statement).await?;
+
+        let statements = [
+            "CREATE EXTENSION IF NOT EXISTS pg_stat_statements".to_owned(),
+            format!(r#"ALTER DATABASE "{db}" SET auto_explain.log_min_duration = 3000"#),
+            format!(r#"ALTER DATABASE "{db}" SET auto_explain.log_analyze = true"#),
+            format!(r#"ALTER DATABASE "{db}" SET auto_explain.log_buffers = true"#),
+            format!(r#"ALTER DATABASE "{db}" SET auto_explain.log_nested_statements = true"#),
+            format!(r#"ALTER DATABASE "{db}" SET auto_explain.log_settings = true"#),
+            format!(r#"ALTER DATABASE "{db}" SET auto_explain.log_verbose = true"#),
+            format!(r#"ALTER DATABASE "{db}" SET auto_explain.log_wal = true"#),
+        ];
+        execute_all(&pool, &statements).await?;
 
         Ok(())
     }
