@@ -88,10 +88,10 @@ impl PostgreSQL {
 
             match user.role {
                 Role::Migration => {
+                    // migration user will be owners of all tables, thus has read/write access
                     let statements = [
                         format!(r#"GRANT CREATE, CONNECT ON DATABASE "{db}" TO "{user_name}""#),
                         format!(r#"GRANT CREATE, USAGE ON SCHEMA public TO "{user_name}""#),
-                        format!(r#"GRANT pg_write_all_data TO "{user_name}""#),
                     ];
                     execute_all(&pool, &statements).await?;
                 }
