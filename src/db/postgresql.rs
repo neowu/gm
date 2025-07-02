@@ -98,6 +98,7 @@ impl PostgreSQL {
                 Role::App => {
                     let statements = [
                         format!(r#"GRANT CONNECT ON DATABASE "{db}" TO "{user_name}""#),
+                        format!(r#"GRANT pg_read_all_data TO "{user_name}""#),
                         format!(r#"GRANT pg_write_all_data TO "{user_name}""#),
                     ];
                     execute_all(&pool, &statements).await?;
