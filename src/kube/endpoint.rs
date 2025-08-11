@@ -18,14 +18,17 @@ metadata:
 spec:
   clusterIP: None
 ---
-apiVersion: v1
-kind: Endpoints
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
 metadata:
   name: {name}
   namespace: {ns}
-subsets:
+  labels:
+    kubernetes.io/service-name: {name}
+addressType: IPv4
+endpoints:
 - addresses:
-  - ip: {ip}"#
+  - {ip}"#
         )
     }
 }
