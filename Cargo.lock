@@ -640,7 +640,7 @@ checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 
 [[package]]
 name = "gm"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "anyhow",
  "base64",

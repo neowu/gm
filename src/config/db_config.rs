@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
 pub struct DBConfig {
+    pub version: String,
     pub project: String,
     pub env: String,
     pub instance: String,
@@ -22,6 +23,12 @@ pub enum DBType {
 
 impl DBConfig {
     pub fn validate(&self) {
+        let version = env!("CARGO_PKG_VERSION");
+        let config_version = &self.version;
+        if config_version != version {
+            panic!("config version does not match gm, config_version={config_version}, gm_version={version}");
+        }
+
         for user in &self.users {
             if matches!(self.db_type, DBType::MySQL) && user.name.len() > 32 {
                 panic!("db user name must be no longer than 32, user={}", user.name);
