@@ -118,6 +118,16 @@ impl PostgreSQL {
                     ];
                     execute_all(&pool, &statements).await?;
                 }
+                Role::Super => {
+                    let statements = [
+                        format!(r#"GRANT CONNECT ON DATABASE "{db}" TO "{user_name}""#),
+                        format!(r#"GRANT pg_read_all_data TO "{user_name}""#),
+                        format!(r#"GRANT pg_write_all_data TO "{user_name}""#),
+                        // refer to https://docs.cloud.google.com/sql/docs/postgres/users, allow viewing query by `select * from pg_stat_activity`
+                        format!(r#"GRANT cloudsqlsuperuser TO "{user_name}""#),
+                    ];
+                    execute_all(&pool, &statements).await?;
+                }
             };
         }
         Ok(())

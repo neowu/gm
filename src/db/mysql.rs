@@ -44,6 +44,7 @@ impl MySQL {
             Role::Migration => "CREATE, DROP, INDEX, ALTER, EXECUTE, SELECT, INSERT, UPDATE, DELETE",
             Role::Viewer => "SELECT",
             Role::Replication => "REPLICATION SLAVE, SELECT, RELOAD, REPLICATION CLIENT, LOCK TABLES, EXECUTE",
+            Role::Super => panic!("MySQL doesn't support Super role"),
         };
 
         info!(user = user.name, privileges, "grant user privileges");

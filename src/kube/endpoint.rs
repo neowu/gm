@@ -43,11 +43,9 @@ subsets:
 }
 
 mod test {
-    use crate::kube::endpoint::Endpoint;
-
     #[test]
     fn to_kube_config() {
-        let endpoint = Endpoint {
+        let endpoint = crate::kube::endpoint::Endpoint {
             name: "db",
             ns: "app",
             ip: "10.10.0.1",

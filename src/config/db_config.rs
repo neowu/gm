@@ -74,4 +74,6 @@ pub enum Role {
     Viewer,
     #[serde(rename(deserialize = "REPLICATION"))]
     Replication,
+    #[serde(rename(deserialize = "SUPER"))]
+    Super,
 }
