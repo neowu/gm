@@ -1,3 +1,5 @@
+use std::slice::from_ref;
+
 use anyhow::Result;
 use sqlx::MySql;
 use sqlx::Pool;
@@ -56,7 +58,7 @@ impl MySQL {
                 sqlx::query(&statement).execute(&self.pool).await?;
             }
             _ => {
-                let target_dbs = if let Some(db) = &user.db { &[db.to_owned()] } else { dbs };
+                let target_dbs = if let Some(db) = &user.db { from_ref(db) } else { dbs };
                 for db in target_dbs {
                     let statement = format!("GRANT {privileges} ON `{db}`.* TO '{}'@'%'", user.name);
                     sqlx::query(&statement).execute(&self.pool).await?;

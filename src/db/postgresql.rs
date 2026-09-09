@@ -1,3 +1,5 @@
+use std::slice::from_ref;
+
 use anyhow::Result;
 use sqlx::Pool;
 use sqlx::Postgres;
@@ -81,7 +83,7 @@ impl PostgreSQL {
     pub async fn grant_user_privileges(&mut self, user: &User, dbs: &[String]) -> Result<()> {
         info!(user = user.name, "grant user privileges");
 
-        let target_dbs = if let Some(db) = &user.db { &[db.to_owned()] } else { dbs };
+        let target_dbs = if let Some(db) = &user.db { from_ref(db) } else { dbs };
         let user_name = &user.name;
         for db in target_dbs {
             let pool = self.pool(db).await?;
