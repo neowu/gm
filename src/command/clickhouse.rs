@@ -67,9 +67,9 @@ async fn sync(config: &ClickHouseConfig) {
         let name = &profile.name;
         info!(profile = name, "sync profile");
         clickhouse.execute(&format!("CREATE SETTINGS PROFILE IF NOT EXISTS `{name}`")).await;
-        // bare SETTINGS replaces all existing settings of profile
+        // replace all settings and clear TO, keep profile id so assigned users stay linked (OR REPLACE creates new id)
         clickhouse
-            .execute(&format!("ALTER SETTINGS PROFILE `{name}` SETTINGS {}", profile.settings.join(", ")))
+            .execute(&format!("ALTER SETTINGS PROFILE `{name}` SETTINGS {} TO NONE", profile.settings.join(", ")))
             .await;
     }
 
@@ -110,7 +110,7 @@ async fn status(config: &ClickHouseConfig) {
             &format!("CREATE SETTINGS PROFILE `{name}` SETTINGS {}", profile.settings.join(", ")),
         )
         .await;
-        print_diff(&format!("profile {name}"), &profile_settings(&current), &profile_settings(&target));
+        print_diff(&format!("profile {name}"), &[current.trim_end().to_owned()], &[target]);
     }
 
     let users = clickhouse.execute("SELECT name FROM system.users FORMAT TSVRaw").await;
@@ -141,14 +141,6 @@ async fn format_query(clickhouse: &ClickHouse, query: &str) -> String {
         .await
         .trim_end()
         .to_owned()
-}
-
-fn profile_settings(statement: &str) -> Vec<String> {
-    statement
-        .trim_end()
-        .split_once(" SETTINGS ")
-        .map(|(_, settings)| split_top_level(settings))
-        .unwrap_or_default()
 }
 
 // split "GRANT A, B ON db.* TO user" into "A ON db.*", "B ON db.*", as clickhouse merges grants on same target

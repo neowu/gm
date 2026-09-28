@@ -6,7 +6,7 @@ provide "clickhouse" subcommand, config: `{env}/clickhouse/clickhouse.jsonc` (en
 
 ## `gm clickhouse sync` (idempotent)
 
-1. create or update profiles, settings are replaced entirely by config
+1. create or update profiles, whole profile is replaced by config (settings replaced, `TO` cleared); use `ALTER` not `OR REPLACE`, as `OR REPLACE` creates new profile id and unlinks assigned users
 2. for each user
    - get or generate uuid password in `secret`
    - create or update user with the password
@@ -17,7 +17,7 @@ provide "clickhouse" subcommand, config: `{env}/clickhouse/clickhouse.jsonc` (en
 
 show diff between clickhouse and config, read only
 
-- for each profile: `up to date`, `not found`, or settings diff
+- for each profile: `up to date`, `not found`, or diff of whole `CREATE SETTINGS PROFILE` statement
 - for each user: `up to date`, `not found`, or grants diff (grants of `role`)
 - diff: `-` exists in clickhouse but not in config, `+` in config but not in clickhouse
 - config side is normalized by clickhouse `formatQuerySingleLine`, to compare with `SHOW CREATE SETTINGS PROFILE` / `SHOW GRANTS` output; merged grants (`A, B ON db.*`) are split per privilege
