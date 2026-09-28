@@ -13,6 +13,16 @@ provide "clickhouse" subcommand, config: `{env}/clickhouse/clickhouse.jsonc` (en
    - assign `profile`
    - grant `grants` of `role` directly to user, additive only (never revoke, to not interrupt current work; revoke manually if needed)
 
+## `gm clickhouse status`
+
+show diff between clickhouse and config, read only
+
+- for each profile: `up to date`, `not found`, or settings diff
+- for each user: `up to date`, `not found`, or grants diff (grants of `role`)
+- diff: `-` exists in clickhouse but not in config, `+` in config but not in clickhouse
+- config side is normalized by clickhouse `formatQuerySingleLine`, to compare with `SHOW CREATE SETTINGS PROFILE` / `SHOW GRANTS` output; merged grants (`A, B ON db.*`) are split per privilege
+- since sync never revokes, `-` grants remain after sync
+
 ## `gm clickhouse send-password [--user {user_name}]`
 
 - if user not specified, do it for all users having email

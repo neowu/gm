@@ -24,6 +24,8 @@ pub struct ClickHouseCommand {
 enum Command {
     #[command(about = "sync clickhouse profiles and users")]
     Sync,
+    #[command(about = "show diff between clickhouse and config")]
+    Status,
     #[command(about = "send password email to users")]
     SendPassword {
         #[arg(long, help = "user name, default to all users with email")]
@@ -42,19 +44,24 @@ impl ClickHouseCommand {
 
         match &self.command {
             Command::Sync => sync(&config).await,
+            Command::Status => status(&config).await,
             Command::SendPassword { user } => send_password(&config, user.as_deref()).await,
         }
     }
 }
 
-async fn sync(config: &ClickHouseConfig) {
-    let clickhouse = ClickHouse {
+async fn connect(config: &ClickHouseConfig) -> ClickHouse {
+    ClickHouse {
         url: config.url.clone(),
         user: "root".to_owned(),
         password: secret_manager::get(&config.project, &config.root_secret)
             .await
             .unwrap_or_else(|| panic!("root secret not found, secret={}", config.root_secret)),
-    };
+    }
+}
+
+async fn sync(config: &ClickHouseConfig) {
+    let clickhouse = connect(config).await;
 
     for profile in &config.profiles {
         let name = &profile.name;
@@ -86,6 +93,119 @@ async fn sync(config: &ClickHouseConfig) {
     }
 }
 
+async fn status(config: &ClickHouseConfig) {
+    let clickhouse = connect(config).await;
+
+    let profiles = clickhouse.execute("SELECT name FROM system.settings_profiles FORMAT TSVRaw").await;
+    for profile in &config.profiles {
+        let name = &profile.name;
+        if !profiles.lines().any(|p| p == name) {
+            println!("profile {name}: not found");
+            continue;
+        }
+        // format target by clickhouse, to compare with same normalization as SHOW CREATE
+        let current = clickhouse.execute(&format!("SHOW CREATE SETTINGS PROFILE `{name}` FORMAT TSVRaw")).await;
+        let target = format_query(
+            &clickhouse,
+            &format!("CREATE SETTINGS PROFILE `{name}` SETTINGS {}", profile.settings.join(", ")),
+        )
+        .await;
+        print_diff(&format!("profile {name}"), &profile_settings(&current), &profile_settings(&target));
+    }
+
+    let users = clickhouse.execute("SELECT name FROM system.users FORMAT TSVRaw").await;
+    for user in &config.users {
+        let name = &user.name;
+        if !users.lines().any(|u| u == name) {
+            println!("user {name}: not found");
+            continue;
+        }
+        let current: Vec<String> = clickhouse
+            .execute(&format!("SHOW GRANTS FOR `{name}` FORMAT TSVRaw"))
+            .await
+            .lines()
+            .flat_map(grant_elements)
+            .collect();
+        let mut target = vec![];
+        for grant in &config.roles.iter().find(|r| r.name == user.role).expect("role should exist").grants {
+            target.extend(grant_elements(&format_query(&clickhouse, &format!("GRANT {grant} TO `{name}`")).await));
+        }
+        print_diff(&format!("user {name}"), &current, &target);
+    }
+}
+
+async fn format_query(clickhouse: &ClickHouse, query: &str) -> String {
+    let literal = query.replace('\\', "\\\\").replace('\'', "\\'");
+    clickhouse
+        .execute(&format!("SELECT formatQuerySingleLine('{literal}') FORMAT TSVRaw"))
+        .await
+        .trim_end()
+        .to_owned()
+}
+
+fn profile_settings(statement: &str) -> Vec<String> {
+    statement
+        .trim_end()
+        .split_once(" SETTINGS ")
+        .map(|(_, settings)| split_top_level(settings))
+        .unwrap_or_default()
+}
+
+// split "GRANT A, B ON db.* TO user" into "A ON db.*", "B ON db.*", as clickhouse merges grants on same target
+fn grant_elements(statement: &str) -> Vec<String> {
+    let Some((body, to)) = statement.strip_prefix("GRANT ").and_then(|s| s.rsplit_once(" TO ")) else {
+        return vec![statement.to_owned()];
+    };
+    let option = to.find(" WITH ").map(|i| &to[i..]).unwrap_or("");
+    match body.rsplit_once(" ON ") {
+        Some((privileges, target)) => split_top_level(privileges)
+            .into_iter()
+            .map(|privilege| format!("{privilege} ON {target}{option}"))
+            .collect(),
+        None => vec![format!("{body}{option}")],
+    }
+}
+
+fn split_top_level(value: &str) -> Vec<String> {
+    let mut items = vec![];
+    let mut start = 0;
+    let mut depth = 0;
+    let mut quoted = false;
+    let mut escaped = false;
+    for (i, c) in value.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' if quoted => escaped = true,
+            '\'' => quoted = !quoted,
+            '(' if !quoted => depth += 1,
+            ')' if !quoted => depth -= 1,
+            ',' if !quoted && depth == 0 => {
+                items.push(value[start..i].trim().to_owned());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(value[start..].trim().to_owned());
+    items
+}
+
+fn print_diff(title: &str, current: &[String], target: &[String]) {
+    let removed: Vec<&String> = current.iter().filter(|c| !target.contains(c)).collect();
+    let added: Vec<&String> = target.iter().filter(|t| !current.contains(t)).collect();
+    if removed.is_empty() && added.is_empty() {
+        println!("{title}: up to date");
+        return;
+    }
+    println!("{title}:");
+    for item in removed {
+        println!("  - {item}");
+    }
+    for item in added {
+        println!("  + {item}");
+    }
+}
+
 async fn send_password(config: &ClickHouseConfig, user_name: Option<&str>) {
     let users: Vec<&User> = match user_name {
         Some(name) => {
@@ -112,8 +232,8 @@ async fn send_password(config: &ClickHouseConfig, user_name: Option<&str>) {
             &config.email.token,
             &config.email.from_address,
             email,
-            "ClickHouse password",
-            &format!("user: {}\npassword: {password}\n", user.name),
+            "clickHouse password",
+            &format!("请删除这封邮件，并妥善保管密码，谢谢\nuser: {}\npassword: {password}\n", user.name),
         )
         .await;
     }

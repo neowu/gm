@@ -9,7 +9,7 @@ pub struct ClickHouse {
 }
 
 impl ClickHouse {
-    pub async fn execute(&self, statement: &str) {
+    pub async fn execute(&self, statement: &str) -> String {
         let response = HTTP_CLIENT
             .post(&self.url)
             .header("X-ClickHouse-User", &self.user)
@@ -24,5 +24,6 @@ impl ClickHouse {
         if status != 200 {
             panic!("failed to execute clickhouse statement, status={status}, response={text}");
         }
+        text
     }
 }
