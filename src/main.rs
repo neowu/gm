@@ -3,7 +3,7 @@ use clap::Parser;
 use clap::Subcommand;
 use command::clickhouse::ClickHouseCommand;
 use command::completion::Completion;
-use command::sync_db::SyncDB;
+use command::db::DBCommand;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::SubscriberExt;
@@ -29,8 +29,8 @@ pub struct Cli {
 #[derive(Subcommand)]
 #[command(arg_required_else_help(true))]
 pub enum Commands {
-    #[command(about = "sync db")]
-    DB(SyncDB),
+    #[command(name = "db", about = "manage db")]
+    DB(DBCommand),
     #[command(name = "clickhouse", about = "manage clickhouse")]
     ClickHouse(ClickHouseCommand),
     #[command(about = "generate shell completion")]

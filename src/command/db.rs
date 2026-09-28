@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Args;
-
+use clap::Subcommand;
 use tracing::info;
 
 use crate::config::db_config::Auth;
@@ -17,12 +17,20 @@ use crate::kube;
 use crate::util::json;
 
 #[derive(Args)]
-pub struct SyncDB {
-    #[arg(long, help = "env path")]
+pub struct DBCommand {
+    #[arg(long, global = true, help = "env path")]
     env: Option<PathBuf>,
+    #[command(subcommand)]
+    command: Command,
 }
 
-impl SyncDB {
+#[derive(Subcommand)]
+enum Command {
+    #[command(about = "sync db, users and kube endpoints")]
+    Sync,
+}
+
+impl DBCommand {
     pub async fn execute(&self) -> Result<()> {
         let env_dir = self.env.as_deref().unwrap_or(Path::new("."));
         if !env_dir.exists() {
@@ -31,23 +39,24 @@ impl SyncDB {
         let absolute_env_dir = fs::canonicalize(env_dir).unwrap_or_else(|err| panic!("{err}"));
         info!("env: {}", absolute_env_dir.to_string_lossy());
 
-        let paths = db_config_paths(env_dir);
-
-        for path in paths {
-            info!("sync db config, config={}", path.to_string_lossy());
-            let content = fs::read_to_string(path).unwrap_or_else(|err| panic!("{err}"));
-            let config: DBConfig = json::from_json(&content);
-            config.validate();
-
-            let instance = sql_admin::get_sql_instance(&config.project, &config.instance).await;
-            let public_ip = instance.public_address();
-            let private_ip = instance.private_address();
-            sync_db(&config, public_ip).await?;
-            sync_kube_endpoints(&config, env_dir, private_ip);
+        match &self.command {
+            Command::Sync => sync(env_dir).await,
         }
-
-        Ok(())
     }
+}
+
+async fn sync(env_dir: &Path) -> Result<()> {
+    for path in db_config_paths(env_dir) {
+        info!("sync db config, config={}", path.to_string_lossy());
+        let content = fs::read_to_string(path).unwrap_or_else(|err| panic!("{err}"));
+        let config: DBConfig = json::from_json(&content);
+        config.validate();
+
+        let instance = sql_admin::get_sql_instance(&config.project, &config.instance).await;
+        sync_db(&config, instance.public_address()).await?;
+        sync_kube_endpoints(&config, env_dir, instance.private_address());
+    }
+    Ok(())
 }
 
 async fn sync_db(config: &DBConfig, public_ip: &str) -> Result<()> {
