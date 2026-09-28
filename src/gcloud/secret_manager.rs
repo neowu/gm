@@ -50,16 +50,20 @@ struct SecretVersion {
     name: String,
 }
 
-pub async fn get_or_create(project: &str, name: &str, env: &str) -> String {
+pub async fn get(project: &str, name: &str) -> Option<String> {
     let url = format!("https://secretmanager.googleapis.com/v1/projects/{project}/secrets/{name}/versions/latest:access");
     let response: Option<AccessSecretVersion> = gcloud::get(&url).await;
+    response.map(|version| {
+        let data = BASE64_STANDARD
+            .decode(&version.payload.data)
+            .expect("payload should be in base64 encoding");
+        String::from_utf8(data).expect("data should be in utf-8")
+    })
+}
 
-    match response {
-        Some(version) => {
-            let data = version.payload.data;
-            let data = BASE64_STANDARD.decode(&data).expect("payload should be in base64 encoding");
-            String::from_utf8(data).expect("data should be in utf-8")
-        }
+pub async fn get_or_create(project: &str, name: &str, env: &str) -> String {
+    match get(project, name).await {
+        Some(value) => value,
         None => {
             info!(name, "secret not found, create new one");
             create(project, name, env).await;

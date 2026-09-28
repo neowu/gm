@@ -24,8 +24,6 @@ pub struct SyncDB {
 
 impl SyncDB {
     pub async fn execute(&self) -> Result<()> {
-        rustls::crypto::aws_lc_rs::default_provider().install_default().unwrap();
-
         let env_dir = self.env.as_deref().unwrap_or(Path::new("."));
         if !env_dir.exists() {
             panic!("env dir doesn't exist, dir={}", env_dir.to_string_lossy());
