@@ -69,7 +69,10 @@ async fn sync(config: &ClickHouseConfig) {
         clickhouse.execute(&format!("CREATE SETTINGS PROFILE IF NOT EXISTS `{name}`")).await;
         // replace all settings and clear TO, keep profile id so assigned users stay linked (OR REPLACE creates new id)
         clickhouse
-            .execute(&format!("ALTER SETTINGS PROFILE `{name}` SETTINGS {} TO NONE", profile.settings.join(", ")))
+            .execute(&format!(
+                "ALTER SETTINGS PROFILE `{name}` SETTINGS {} TO NONE",
+                profile.settings.join(", ")
+            ))
             .await;
     }
 
@@ -149,7 +152,7 @@ async fn format_query(clickhouse: &ClickHouse, query: &str) -> String {
         .to_owned()
 }
 
-// split "GRANT A, B ON db.* TO user" into "A ON db.*", "B ON db.*", as clickhouse merges grants on same target
+// split merged privileges and expand SHOW to the privileges supported at its scope
 fn grant_elements(statement: &str) -> Vec<String> {
     let Some((body, to)) = statement.strip_prefix("GRANT ").and_then(|s| s.rsplit_once(" TO ")) else {
         return vec![statement.to_owned()];
@@ -158,7 +161,21 @@ fn grant_elements(statement: &str) -> Vec<String> {
     match body.rsplit_once(" ON ") {
         Some((privileges, target)) => split_top_level(privileges)
             .into_iter()
-            .map(|privilege| format!("{privilege} ON {target}{option}"))
+            .flat_map(|privilege| {
+                let privileges = if privilege == "SHOW" {
+                    let mut privileges = vec!["SHOW TABLES", "SHOW COLUMNS", "SHOW DICTIONARIES"];
+                    if target == "*" || target.ends_with(".*") {
+                        privileges.push("SHOW DATABASES");
+                    }
+                    privileges
+                } else {
+                    vec![privilege.as_str()]
+                };
+                privileges
+                    .into_iter()
+                    .map(|privilege| format!("{privilege} ON {target}{option}"))
+                    .collect::<Vec<_>>()
+            })
             .collect(),
         None => vec![format!("{body}{option}")],
     }
@@ -234,5 +251,51 @@ async fn send_password(config: &ClickHouseConfig, user_name: Option<&str>) {
             &format!("请删除这封邮件，并妥善保管密码，谢谢\nuser: {}\npassword: {password}\n", user.name),
         )
         .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::grant_elements;
+
+    #[test]
+    fn show_matches_expanded_table_grants() {
+        let target = grant_elements("GRANT SHOW, SELECT ON analytics.customer TO tarien");
+        let current: Vec<_> = [
+            "GRANT SHOW TABLES ON analytics.customer TO tarien",
+            "GRANT SHOW COLUMNS ON analytics.customer TO tarien",
+            "GRANT SHOW DICTIONARIES ON analytics.customer TO tarien",
+            "GRANT SELECT ON analytics.customer TO tarien",
+        ]
+        .into_iter()
+        .flat_map(grant_elements)
+        .collect();
+        assert_eq!(current, target);
+    }
+
+    #[test]
+    fn show_includes_databases_only_at_database_or_global_scope() {
+        for scope in ["analytics.*", "`analytics`.*", "*.*", "*"] {
+            let target = grant_elements(&format!("GRANT SHOW ON {scope} TO tarien"));
+            let current = grant_elements(&format!(
+                "GRANT SHOW TABLES, SHOW COLUMNS, SHOW DICTIONARIES, SHOW DATABASES ON {scope} TO tarien"
+            ));
+            assert_eq!(current, target);
+        }
+        for scope in ["analytics.customer", "analytics.customer*", "`analytics`.`customer`"] {
+            let target = grant_elements(&format!("GRANT SHOW ON {scope} TO tarien"));
+            assert!(!target.contains(&format!("SHOW DATABASES ON {scope}")));
+        }
+    }
+
+    #[test]
+    fn show_keeps_missing_privileges_scope_and_grant_option_distinct() {
+        let target = grant_elements("GRANT SHOW, SELECT(id, amount) ON analytics.customer TO tarien WITH GRANT OPTION");
+        let current = grant_elements("GRANT SHOW TABLES, SHOW COLUMNS, SELECT(id, amount) ON analytics.customer TO tarien WITH GRANT OPTION");
+        let added: Vec<_> = target.iter().filter(|element| !current.contains(element)).map(String::as_str).collect();
+        assert_eq!(added, ["SHOW DICTIONARIES ON analytics.customer WITH GRANT OPTION"]);
+        assert!(target.contains(&"SELECT(id, amount) ON analytics.customer WITH GRANT OPTION".to_owned()));
+        assert!(!target.contains(&"SHOW TABLES ON analytics.customer".to_owned()));
+        assert!(!target.contains(&"SHOW TABLES ON analytics.other WITH GRANT OPTION".to_owned()));
     }
 }

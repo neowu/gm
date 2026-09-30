@@ -21,6 +21,7 @@ show diff between clickhouse and config, read only
 - for each user: `up to date`, `not found`, or grants diff (union of grants of all `roles`, deduplicated)
 - diff: `-` exists in clickhouse but not in config, `+` in config but not in clickhouse
 - config side is normalized by clickhouse `formatQuerySingleLine`, to compare with `SHOW CREATE SETTINGS PROFILE` / `SHOW GRANTS` output; merged grants (`A, B ON db.*`) are split per privilege
+- `SHOW` and its expanded privileges compare equally on the same scope: `SHOW TABLES`, `SHOW COLUMNS`, `SHOW DICTIONARIES`, plus `SHOW DATABASES` for database/global scopes; missing privileges and differences in scope or grant option still appear in the diff
 - since sync never revokes, `-` grants remain after sync
 
 ## `gm clickhouse send-password [--user {user_name}]`
