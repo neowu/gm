@@ -2,7 +2,7 @@ provide "clickhouse" subcommand, config: `{env}/clickhouse/clickhouse.jsonc` (en
 
 - config is jsonc (comments / trailing commas allowed), `version` must match gm version
 - `url` is clickhouse http interface, connect as `default` user with password from `rootSecret` (secret must exist)
-- user `profile` / `role` are required, must reference names in `profiles` / `roles`
+- user `profile` / `roles` (list) are required, must reference names in `profiles` / `roles`
 
 ## `gm clickhouse sync` (idempotent)
 
@@ -11,14 +11,14 @@ provide "clickhouse" subcommand, config: `{env}/clickhouse/clickhouse.jsonc` (en
    - get or generate uuid password in `secret`
    - create or update user with the password
    - assign `profile`
-   - grant `grants` of `role` directly to user, additive only (never revoke, to not interrupt current work; revoke manually if needed)
+   - grant `grants` of all `roles` directly to user (union of roles, no clickhouse role objects), additive only (never revoke, to not interrupt current work; revoke manually if needed)
 
 ## `gm clickhouse status`
 
 show diff between clickhouse and config, read only
 
 - for each profile: `up to date`, `not found`, or diff of whole `CREATE SETTINGS PROFILE` statement
-- for each user: `up to date`, `not found`, or grants diff (grants of `role`)
+- for each user: `up to date`, `not found`, or grants diff (union of grants of all `roles`, deduplicated)
 - diff: `-` exists in clickhouse but not in config, `+` in config but not in clickhouse
 - config side is normalized by clickhouse `formatQuerySingleLine`, to compare with `SHOW CREATE SETTINGS PROFILE` / `SHOW GRANTS` output; merged grants (`A, B ON db.*`) are split per privilege
 - since sync never revokes, `-` grants remain after sync

@@ -38,7 +38,7 @@ pub struct User {
     pub name: String,
     pub secret: String,
     pub profile: String,
-    pub role: String,
+    pub roles: Vec<String>,
     pub email: Option<String>,
 }
 
@@ -54,8 +54,10 @@ impl ClickHouseConfig {
             if !self.profiles.iter().any(|p| p.name == user.profile) {
                 panic!("user profile not found, user={}, profile={}", user.name, user.profile);
             }
-            if !self.roles.iter().any(|r| r.name == user.role) {
-                panic!("user role not found, user={}, role={}", user.name, user.role);
+            for role in &user.roles {
+                if !self.roles.iter().any(|r| &r.name == role) {
+                    panic!("user role not found, user={}, role={role}", user.name);
+                }
             }
         }
     }

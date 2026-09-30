@@ -86,9 +86,11 @@ async fn sync(config: &ClickHouseConfig) {
         info!(user = name, profile, "assign profile");
         clickhouse.execute(&format!("ALTER USER `{name}` SETTINGS PROFILE '{profile}'")).await;
 
-        for grant in &config.roles.iter().find(|r| r.name == user.role).expect("role should exist").grants {
-            info!(user = name, grant, "grant");
-            clickhouse.execute(&format!("GRANT {grant} TO `{name}`")).await;
+        for role in config.roles.iter().filter(|r| user.roles.contains(&r.name)) {
+            for grant in &role.grants {
+                info!(user = name, role = role.name, grant, "grant");
+                clickhouse.execute(&format!("GRANT {grant} TO `{name}`")).await;
+            }
         }
     }
 }
@@ -127,8 +129,12 @@ async fn status(config: &ClickHouseConfig) {
             .flat_map(grant_elements)
             .collect();
         let mut target = vec![];
-        for grant in &config.roles.iter().find(|r| r.name == user.role).expect("role should exist").grants {
-            target.extend(grant_elements(&format_query(&clickhouse, &format!("GRANT {grant} TO `{name}`")).await));
+        for grant in config.roles.iter().filter(|r| user.roles.contains(&r.name)).flat_map(|r| &r.grants) {
+            for element in grant_elements(&format_query(&clickhouse, &format!("GRANT {grant} TO `{name}`")).await) {
+                if !target.contains(&element) {
+                    target.push(element);
+                }
+            }
         }
         print_diff(&format!("user {name}"), &current, &target);
     }
