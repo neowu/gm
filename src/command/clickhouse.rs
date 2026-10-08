@@ -89,6 +89,14 @@ async fn sync(config: &ClickHouseConfig) {
         info!(user = name, profile, "assign profile");
         clickhouse.execute(&format!("ALTER USER `{name}` SETTINGS PROFILE '{profile}'")).await;
 
+        let current = current_grants(&clickhouse, name).await;
+        let target = target_grants(&clickhouse, config, user).await;
+        if current.len() == target.len() && current.iter().all(|c| target.contains(c)) {
+            info!(user = name, "grants up to date");
+            continue;
+        }
+        info!(user = name, "revoke all grants");
+        clickhouse.execute(&format!("REVOKE ALL ON *.* FROM `{name}`")).await;
         for role in config.roles.iter().filter(|r| user.roles.contains(&r.name)) {
             for grant in &role.grants {
                 info!(user = name, role = role.name, grant, "grant");
@@ -125,22 +133,34 @@ async fn status(config: &ClickHouseConfig) {
             println!("user {name}: not found");
             continue;
         }
-        let current: Vec<String> = clickhouse
-            .execute(&format!("SHOW GRANTS FOR `{name}` FORMAT TSVRaw"))
-            .await
-            .lines()
-            .flat_map(grant_elements)
-            .collect();
-        let mut target = vec![];
-        for grant in config.roles.iter().filter(|r| user.roles.contains(&r.name)).flat_map(|r| &r.grants) {
-            for element in grant_elements(&format_query(&clickhouse, &format!("GRANT {grant} TO `{name}`")).await) {
-                if !target.contains(&element) {
-                    target.push(element);
-                }
+        print_diff(
+            &format!("user {name}"),
+            &current_grants(&clickhouse, name).await,
+            &target_grants(&clickhouse, config, user).await,
+        );
+    }
+}
+
+async fn current_grants(clickhouse: &ClickHouse, name: &str) -> Vec<String> {
+    clickhouse
+        .execute(&format!("SHOW GRANTS FOR `{name}` FORMAT TSVRaw"))
+        .await
+        .lines()
+        .flat_map(grant_elements)
+        .collect()
+}
+
+// union of grants of all user roles, normalized by clickhouse and deduplicated
+async fn target_grants(clickhouse: &ClickHouse, config: &ClickHouseConfig, user: &User) -> Vec<String> {
+    let mut target = vec![];
+    for grant in config.roles.iter().filter(|r| user.roles.contains(&r.name)).flat_map(|r| &r.grants) {
+        for element in grant_elements(&format_query(clickhouse, &format!("GRANT {grant} TO `{}`", user.name)).await) {
+            if !target.contains(&element) {
+                target.push(element);
             }
         }
-        print_diff(&format!("user {name}"), &current, &target);
     }
+    target
 }
 
 async fn format_query(clickhouse: &ClickHouse, query: &str) -> String {

@@ -11,7 +11,8 @@ provide "clickhouse" subcommand, config: `{env}/clickhouse/clickhouse.jsonc` (en
    - get or generate uuid password in `secret`
    - create or update user with the password
    - assign `profile`
-   - grant `grants` of all `roles` directly to user (union of roles, no clickhouse role objects), additive only (never revoke, to not interrupt current work; revoke manually if needed)
+   - grant `grants` of all `roles` directly to user (union of roles, no clickhouse role objects)
+   - compare current grants with config (same normalization as `status`), strict set equality; if up to date skip, otherwise `REVOKE ALL ON *.*` then grant all from config (no partial revoke / grant)
 
 ## `gm clickhouse status`
 
@@ -22,7 +23,6 @@ show diff between clickhouse and config, read only
 - diff: `-` exists in clickhouse but not in config, `+` in config but not in clickhouse
 - config side is normalized by clickhouse `formatQuerySingleLine`, to compare with `SHOW CREATE SETTINGS PROFILE` / `SHOW GRANTS` output; merged grants (`A, B ON db.*`) are split per privilege
 - `SHOW` and its expanded privileges compare equally on the same scope: `SHOW TABLES`, `SHOW COLUMNS`, `SHOW DICTIONARIES`, plus `SHOW DATABASES` for database/global scopes; missing privileges and differences in scope or grant option still appear in the diff
-- since sync never revokes, `-` grants remain after sync
 
 ## `gm clickhouse send-password [--user {user_name}]`
 
