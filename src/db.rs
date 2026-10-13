@@ -41,4 +41,26 @@ impl Database {
             Database::PostgreSQL(postgresql) => postgresql.grant_user_privileges(user, dbs).await,
         }
     }
+
+    pub async fn db_exists(&mut self, db: &str) -> Result<bool> {
+        match self {
+            Database::MySQL(mysql) => mysql.db_exists(db).await,
+            Database::PostgreSQL(postgresql) => postgresql.db_exists(db).await,
+        }
+    }
+
+    // None if user not found
+    pub async fn current_grants(&mut self, user: &User, dbs: &[String]) -> Result<Option<Vec<String>>> {
+        match self {
+            Database::MySQL(mysql) => mysql.current_grants(user, dbs).await,
+            Database::PostgreSQL(postgresql) => postgresql.current_grants(&user.name, dbs).await,
+        }
+    }
+
+    pub fn target_grants(&self, user: &User, dbs: &[String]) -> Vec<String> {
+        match self {
+            Database::MySQL(_) => mysql::target_grants(user, dbs),
+            Database::PostgreSQL(_) => postgresql::target_grants(user, dbs),
+        }
+    }
 }

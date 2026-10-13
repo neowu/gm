@@ -83,62 +83,147 @@ impl PostgreSQL {
     pub async fn grant_user_privileges(&mut self, user: &User, dbs: &[String]) -> Result<()> {
         info!(user = user.name, "grant user privileges");
 
-        let target_dbs = if let Some(db) = &user.db { from_ref(db) } else { dbs };
         let user_name = &user.name;
-        for db in target_dbs {
+        let privileges = privileges(&user.role);
+        for db in target_dbs(user, dbs) {
             let pool = self.pool(db).await?;
-
-            match user.role {
-                Role::Migration => {
-                    // migration user will be owners of all tables, thus has read/write access
-                    let statements = [
-                        format!(r#"GRANT CREATE, CONNECT ON DATABASE "{db}" TO "{user_name}""#),
-                        format!(r#"GRANT CREATE, USAGE ON SCHEMA public TO "{user_name}""#),
-                    ];
-                    execute_all(&pool, &statements).await?;
-                }
-                Role::App => {
-                    let statements = [
-                        format!(r#"GRANT CONNECT ON DATABASE "{db}" TO "{user_name}""#),
-                        format!(r#"GRANT pg_read_all_data TO "{user_name}""#),
-                        format!(r#"GRANT pg_write_all_data TO "{user_name}""#),
-                    ];
-                    execute_all(&pool, &statements).await?;
-                }
-                Role::Viewer => {
-                    let statements = [
-                        format!(r#"GRANT CONNECT ON DATABASE "{db}" TO "{user_name}""#),
-                        format!(r#"GRANT pg_read_all_data TO "{user_name}""#),
-                    ];
-                    execute_all(&pool, &statements).await?;
-                }
-                Role::Replication => {
-                    let statements = [
-                        format!(r#"GRANT CONNECT ON DATABASE "{db}" TO "{user_name}""#),
-                        format!(r#"GRANT USAGE ON SCHEMA public TO "{user_name}""#),
-                        format!(r#"GRANT pg_read_all_data TO "{user_name}""#),
-                    ];
-                    execute_all(&pool, &statements).await?;
-                }
-                Role::Super => {
-                    let statements = [
-                        format!(r#"GRANT CONNECT ON DATABASE "{db}" TO "{user_name}""#),
-                        format!(r#"GRANT pg_read_all_data TO "{user_name}""#),
-                        format!(r#"GRANT pg_write_all_data TO "{user_name}""#),
-                        // refer to https://docs.cloud.google.com/sql/docs/postgres/users, allow viewing query by `select * from pg_stat_activity`
-                        format!(r#"GRANT cloudsqlsuperuser TO "{user_name}""#),
-                    ];
-                    execute_all(&pool, &statements).await?;
-                }
-            };
+            let mut statements = vec![format!(r#"GRANT {} ON DATABASE "{db}" TO "{user_name}""#, privileges.database.join(", "))];
+            if !privileges.schema.is_empty() {
+                statements.push(format!(r#"GRANT {} ON SCHEMA public TO "{user_name}""#, privileges.schema.join(", ")));
+            }
+            for role in privileges.roles {
+                statements.push(format!(r#"GRANT {role} TO "{user_name}""#));
+            }
+            execute_all(&pool, &statements).await?;
         }
         Ok(())
+    }
+
+    pub async fn db_exists(&mut self, db: &str) -> Result<bool> {
+        let pool = self.pool("postgres").await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(1) FROM pg_database WHERE datname = $1")
+            .bind(db)
+            .fetch_one(&pool)
+            .await?;
+        Ok(count > 0)
+    }
+
+    // only check privileges managed by sync on config dbs: database / public schema acl, role membership, replication attribute
+    pub async fn current_grants(&mut self, user: &str, dbs: &[String]) -> Result<Option<Vec<String>>> {
+        let pool = self.pool("postgres").await?;
+        let Some(replication): Option<bool> = sqlx::query_scalar("SELECT rolreplication FROM pg_roles WHERE rolname = $1")
+            .bind(user)
+            .fetch_optional(&pool)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let mut grants = vec![];
+        if replication {
+            grants.push("REPLICATION".to_owned());
+        }
+        // cloudsqliamuser / cloudsqliamserviceaccount are assigned by gcloud to IAM users
+        let roles: Vec<String> = sqlx::query_scalar(
+            "SELECT r.rolname::text FROM pg_auth_members m JOIN pg_roles r ON m.roleid = r.oid JOIN pg_roles u ON m.member = u.oid
+             WHERE u.rolname = $1 AND r.rolname NOT IN ('cloudsqliamuser', 'cloudsqliamserviceaccount') ORDER BY 1",
+        )
+        .bind(user)
+        .fetch_all(&pool)
+        .await?;
+        grants.extend(roles.iter().map(|role| format!("ROLE {role}")));
+
+        for db in dbs {
+            if !self.db_exists(db).await? {
+                continue;
+            }
+            let privileges: Vec<String> = sqlx::query_scalar(
+                "SELECT a.privilege_type FROM pg_database d, aclexplode(d.datacl) a
+                 WHERE d.datname = $1 AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = $2)",
+            )
+            .bind(db)
+            .bind(user)
+            .fetch_all(&pool)
+            .await?;
+            grants.extend(privileges.iter().map(|privilege| format!(r#"{privilege} ON DATABASE "{db}""#)));
+
+            let privileges: Vec<String> = sqlx::query_scalar(
+                "SELECT a.privilege_type FROM pg_namespace n, aclexplode(n.nspacl) a
+                 WHERE n.nspname = 'public' AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = $1)",
+            )
+            .bind(user)
+            .fetch_all(&self.pool(db).await?)
+            .await?;
+            grants.extend(privileges.iter().map(|privilege| format!(r#"{privilege} ON SCHEMA "{db}".public"#)));
+        }
+        Ok(Some(grants))
     }
 
     async fn pool(&self, db: &str) -> Result<Pool<Postgres>> {
         let options = self.options.clone().database(db);
         Ok(PgPoolOptions::new().max_connections(1).connect_with(options).await?)
     }
+}
+
+pub fn target_grants(user: &User, dbs: &[String]) -> Vec<String> {
+    let privileges = privileges(&user.role);
+    let mut grants = vec![];
+    if let Role::Replication = user.role {
+        grants.push("REPLICATION".to_owned());
+    }
+    grants.extend(privileges.roles.iter().map(|role| format!("ROLE {role}")));
+    for db in target_dbs(user, dbs) {
+        grants.extend(privileges.database.iter().map(|privilege| format!(r#"{privilege} ON DATABASE "{db}""#)));
+        grants.extend(
+            privileges
+                .schema
+                .iter()
+                .map(|privilege| format!(r#"{privilege} ON SCHEMA "{db}".public"#)),
+        );
+    }
+    grants
+}
+
+struct Privileges {
+    database: &'static [&'static str],
+    schema: &'static [&'static str],
+    roles: &'static [&'static str],
+}
+
+fn privileges(role: &Role) -> Privileges {
+    match role {
+        // migration user will be owners of all tables, thus has read/write access
+        Role::Migration => Privileges {
+            database: &["CREATE", "CONNECT"],
+            schema: &["CREATE", "USAGE"],
+            roles: &[],
+        },
+        Role::App => Privileges {
+            database: &["CONNECT"],
+            schema: &[],
+            roles: &["pg_read_all_data", "pg_write_all_data"],
+        },
+        Role::Viewer => Privileges {
+            database: &["CONNECT"],
+            schema: &[],
+            roles: &["pg_read_all_data"],
+        },
+        Role::Replication => Privileges {
+            database: &["CONNECT"],
+            schema: &["USAGE"],
+            roles: &["pg_read_all_data"],
+        },
+        // refer to https://docs.cloud.google.com/sql/docs/postgres/users, cloudsqlsuperuser allows viewing query by `select * from pg_stat_activity`
+        Role::Super => Privileges {
+            database: &["CONNECT"],
+            schema: &[],
+            roles: &["pg_read_all_data", "pg_write_all_data", "cloudsqlsuperuser"],
+        },
+    }
+}
+
+fn target_dbs<'a>(user: &'a User, dbs: &'a [String]) -> &'a [String] {
+    if let Some(db) = &user.db { from_ref(db) } else { dbs }
 }
 
 async fn execute(pool: &Pool<Postgres>, statement: String) -> Result<()> {

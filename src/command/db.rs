@@ -20,6 +20,8 @@ use crate::util::json;
 pub struct DBCommand {
     #[arg(long, global = true, help = "env path")]
     env: Option<PathBuf>,
+    #[arg(long, global = true, help = "only apply this config file in env db dir, e.g. db.json")]
+    config: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -28,6 +30,8 @@ pub struct DBCommand {
 enum Command {
     #[command(about = "sync db, users and kube endpoints")]
     Sync,
+    #[command(about = "show diff between db and config")]
+    Status,
 }
 
 impl DBCommand {
@@ -39,24 +43,90 @@ impl DBCommand {
         let absolute_env_dir = fs::canonicalize(env_dir).unwrap_or_else(|err| panic!("{err}"));
         info!("env: {}", absolute_env_dir.to_string_lossy());
 
+        let paths = db_config_paths(env_dir, self.config.as_deref());
         match &self.command {
-            Command::Sync => sync(env_dir).await,
+            Command::Sync => sync(env_dir, paths).await,
+            Command::Status => status(env_dir, paths).await,
         }
     }
 }
 
-async fn sync(env_dir: &Path) -> Result<()> {
-    for path in db_config_paths(env_dir) {
+async fn sync(env_dir: &Path, paths: Vec<PathBuf>) -> Result<()> {
+    for path in paths {
         info!("sync db config, config={}", path.to_string_lossy());
-        let content = fs::read_to_string(path).unwrap_or_else(|err| panic!("{err}"));
-        let config: DBConfig = json::from_json(&content);
-        config.validate();
-
+        let config = load_config(&path);
         let instance = sql_admin::get_sql_instance(&config.project, &config.instance).await;
         sync_db(&config, instance.public_address()).await?;
         sync_kube_endpoints(&config, env_dir, instance.private_address());
     }
     Ok(())
+}
+
+async fn status(env_dir: &Path, paths: Vec<PathBuf>) -> Result<()> {
+    for path in paths {
+        info!("load db config, config={}", path.to_string_lossy());
+        let config = load_config(&path);
+        println!("instance {}:", config.instance);
+
+        let instance = sql_admin::get_sql_instance(&config.project, &config.instance).await;
+        let root_password = secret_manager::get(&config.project, &config.root_secret)
+            .await
+            .unwrap_or_else(|| panic!("root secret not found, run sync first, secret={}", config.root_secret));
+        let mut database = Database::create_database(&config.db_type, instance.public_address(), &root_password).await?;
+
+        for db in &config.dbs {
+            if database.db_exists(db).await? {
+                println!("db {db}: up to date");
+            } else {
+                println!("db {db}: not found");
+            }
+        }
+
+        for user in &config.users {
+            let name = &user.name;
+            match database.current_grants(user, &config.dbs).await? {
+                Some(current) => print_diff(&format!("user {name}"), &current, &database.target_grants(user, &config.dbs)),
+                None => println!("user {name}: not found"),
+            }
+        }
+
+        let endpoint_path = env_dir.join(&config.endpoint.path);
+        let target = kube::endpoint::Endpoint {
+            name: &config.endpoint.name,
+            ns: &config.endpoint.ns,
+            ip: instance.private_address(),
+        }
+        .to_kube_config();
+        match fs::read_to_string(&endpoint_path) {
+            Ok(current) if current == target => println!("endpoint {}: up to date", config.endpoint.path),
+            Ok(_) => println!("endpoint {}: outdated", config.endpoint.path),
+            Err(_) => println!("endpoint {}: not found", config.endpoint.path),
+        }
+    }
+    Ok(())
+}
+
+fn print_diff(title: &str, current: &[String], target: &[String]) {
+    let removed: Vec<&String> = current.iter().filter(|c| !target.contains(c)).collect();
+    let added: Vec<&String> = target.iter().filter(|t| !current.contains(t)).collect();
+    if removed.is_empty() && added.is_empty() {
+        println!("{title}: up to date");
+        return;
+    }
+    println!("{title}:");
+    for item in removed {
+        println!("  - {item}");
+    }
+    for item in added {
+        println!("  + {item}");
+    }
+}
+
+fn load_config(path: &Path) -> DBConfig {
+    let content = fs::read_to_string(path).unwrap_or_else(|err| panic!("{err}"));
+    let config: DBConfig = json::from_json(&content);
+    config.validate();
+    config
 }
 
 async fn sync_db(config: &DBConfig, public_ip: &str) -> Result<()> {
@@ -98,11 +168,19 @@ fn sync_kube_endpoints(config: &DBConfig, env_dir: &Path, private_ip: &str) {
     fs::write(endpoint_path, contents).unwrap_or_else(|err| panic!("{err}"));
 }
 
-fn db_config_paths(env_dir: &Path) -> Vec<PathBuf> {
+fn db_config_paths(env_dir: &Path, config: Option<&str>) -> Vec<PathBuf> {
     let db_dir = env_dir.join("db");
 
     if !db_dir.exists() {
         panic!("db dir doesn't exist, dir={}", db_dir.to_string_lossy());
+    }
+
+    if let Some(config) = config {
+        let path = db_dir.join(config);
+        if !path.is_file() {
+            panic!("db config doesn't exist, config={}", path.to_string_lossy());
+        }
+        return vec![path];
     }
 
     let paths: Vec<PathBuf> = fs::read_dir(&db_dir)

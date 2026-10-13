@@ -4,7 +4,7 @@ provide "clickhouse" subcommand, config: `{env}/clickhouse/clickhouse.jsonc` (en
 - `url` is clickhouse http interface, connect as `default` user with password from `rootSecret` (secret must exist)
 - user `profile` / `roles` (list) are required, must reference names in `profiles` / `roles`
 
-## `gm clickhouse sync` (idempotent)
+## `gm clickhouse sync [--force]` (idempotent)
 
 1. create or update profiles, whole profile is replaced by config (settings replaced, `TO` cleared); use `ALTER` not `OR REPLACE`, as `OR REPLACE` creates new profile id and unlinks assigned users
 2. for each user
@@ -12,7 +12,8 @@ provide "clickhouse" subcommand, config: `{env}/clickhouse/clickhouse.jsonc` (en
    - create or update user with the password
    - assign `profile`
    - grant `grants` of all `roles` directly to user (union of roles, no clickhouse role objects)
-   - compare current grants with config (same normalization as `status`), strict set equality; if up to date skip, otherwise `REVOKE ALL ON *.*` then grant all from config (no partial revoke / grant)
+   - compare current grants with config (same normalization as `status`), strict set equality; if up to date skip, otherwise grant all from config (no partial grant)
+   - only with `--force`, `REVOKE ALL ON *.*` before granting; without it never revoke (safe on prod), extra grants are kept and reported by `status`
 
 ## `gm clickhouse status`
 

@@ -23,7 +23,10 @@ pub struct ClickHouseCommand {
 #[derive(Subcommand)]
 enum Command {
     #[command(about = "sync clickhouse profiles and users")]
-    Sync,
+    Sync {
+        #[arg(long, help = "revoke grants not in config, otherwise only grant")]
+        force: bool,
+    },
     #[command(about = "show diff between clickhouse and config")]
     Status,
     #[command(about = "send password email to users")]
@@ -43,7 +46,7 @@ impl ClickHouseCommand {
         config.validate();
 
         match &self.command {
-            Command::Sync => sync(&config).await,
+            Command::Sync { force } => sync(&config, *force).await,
             Command::Status => status(&config).await,
             Command::SendPassword { user } => send_password(&config, user.as_deref()).await,
         }
@@ -60,7 +63,7 @@ async fn connect(config: &ClickHouseConfig) -> ClickHouse {
     }
 }
 
-async fn sync(config: &ClickHouseConfig) {
+async fn sync(config: &ClickHouseConfig, force: bool) {
     let clickhouse = connect(config).await;
 
     for profile in &config.profiles {
@@ -95,8 +98,12 @@ async fn sync(config: &ClickHouseConfig) {
             info!(user = name, "grants up to date");
             continue;
         }
-        info!(user = name, "revoke all grants");
-        clickhouse.execute(&format!("REVOKE ALL ON *.* FROM `{name}`")).await;
+        if force {
+            info!(user = name, "revoke all grants");
+            clickhouse.execute(&format!("REVOKE ALL ON *.* FROM `{name}`")).await;
+        } else if current.iter().any(|c| !target.contains(c)) {
+            info!(user = name, "keep grants not in config, use --force to revoke");
+        }
         for role in config.roles.iter().filter(|r| user.roles.contains(&r.name)) {
             for grant in &role.grants {
                 info!(user = name, role = role.name, grant, "grant");
@@ -280,12 +287,12 @@ mod tests {
 
     #[test]
     fn show_matches_expanded_table_grants() {
-        let target = grant_elements("GRANT SHOW, SELECT ON analytics.customer TO tarien");
+        let target = grant_elements("GRANT SHOW, SELECT ON analytics.customer TO neo");
         let current: Vec<_> = [
-            "GRANT SHOW TABLES ON analytics.customer TO tarien",
-            "GRANT SHOW COLUMNS ON analytics.customer TO tarien",
-            "GRANT SHOW DICTIONARIES ON analytics.customer TO tarien",
-            "GRANT SELECT ON analytics.customer TO tarien",
+            "GRANT SHOW TABLES ON analytics.customer TO neo",
+            "GRANT SHOW COLUMNS ON analytics.customer TO neo",
+            "GRANT SHOW DICTIONARIES ON analytics.customer TO neo",
+            "GRANT SELECT ON analytics.customer TO neo",
         ]
         .into_iter()
         .flat_map(grant_elements)
@@ -296,22 +303,22 @@ mod tests {
     #[test]
     fn show_includes_databases_only_at_database_or_global_scope() {
         for scope in ["analytics.*", "`analytics`.*", "*.*", "*"] {
-            let target = grant_elements(&format!("GRANT SHOW ON {scope} TO tarien"));
+            let target = grant_elements(&format!("GRANT SHOW ON {scope} TO neo"));
             let current = grant_elements(&format!(
-                "GRANT SHOW TABLES, SHOW COLUMNS, SHOW DICTIONARIES, SHOW DATABASES ON {scope} TO tarien"
+                "GRANT SHOW TABLES, SHOW COLUMNS, SHOW DICTIONARIES, SHOW DATABASES ON {scope} TO neo"
             ));
             assert_eq!(current, target);
         }
         for scope in ["analytics.customer", "analytics.customer*", "`analytics`.`customer`"] {
-            let target = grant_elements(&format!("GRANT SHOW ON {scope} TO tarien"));
+            let target = grant_elements(&format!("GRANT SHOW ON {scope} TO neo"));
             assert!(!target.contains(&format!("SHOW DATABASES ON {scope}")));
         }
     }
 
     #[test]
     fn show_keeps_missing_privileges_scope_and_grant_option_distinct() {
-        let target = grant_elements("GRANT SHOW, SELECT(id, amount) ON analytics.customer TO tarien WITH GRANT OPTION");
-        let current = grant_elements("GRANT SHOW TABLES, SHOW COLUMNS, SELECT(id, amount) ON analytics.customer TO tarien WITH GRANT OPTION");
+        let target = grant_elements("GRANT SHOW, SELECT(id, amount) ON analytics.customer TO neo WITH GRANT OPTION");
+        let current = grant_elements("GRANT SHOW TABLES, SHOW COLUMNS, SELECT(id, amount) ON analytics.customer TO neo WITH GRANT OPTION");
         let added: Vec<_> = target.iter().filter(|element| !current.contains(element)).map(String::as_str).collect();
         assert_eq!(added, ["SHOW DICTIONARIES ON analytics.customer WITH GRANT OPTION"]);
         assert!(target.contains(&"SELECT(id, amount) ON analytics.customer WITH GRANT OPTION".to_owned()));
