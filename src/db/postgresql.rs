@@ -159,6 +159,38 @@ impl PostgreSQL {
         Ok(Some(grants))
     }
 
+    // revoke privileges managed by sync on config dbs, postgres refuses to drop role with database / schema acl
+    pub async fn revoke_user_privileges(&mut self, user: &str, dbs: &[String]) -> Result<()> {
+        info!(user, "revoke user privileges");
+        let pool = self.pool("postgres").await?;
+        let roles: Vec<String> = sqlx::query_scalar(
+            "SELECT r.rolname::text FROM pg_auth_members m JOIN pg_roles r ON m.roleid = r.oid JOIN pg_roles u ON m.member = u.oid
+             WHERE u.rolname = $1 AND r.rolname NOT IN ('cloudsqliamuser', 'cloudsqliamserviceaccount') ORDER BY 1",
+        )
+        .bind(user)
+        .fetch_all(&pool)
+        .await?;
+        let statements: Vec<String> = roles.iter().map(|role| format!(r#"REVOKE "{role}" FROM "{user}""#)).collect();
+        execute_all(&pool, &statements).await?;
+
+        for db in dbs {
+            if !self.db_exists(db).await? {
+                continue;
+            }
+            let statements = [
+                format!(r#"REVOKE ALL ON DATABASE "{db}" FROM "{user}""#),
+                format!(r#"REVOKE ALL ON SCHEMA public FROM "{user}""#),
+            ];
+            execute_all(&self.pool(db).await?, &statements).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn drop_user(&mut self, user: &str) -> Result<()> {
+        let pool = self.pool("postgres").await?;
+        execute(&pool, format!(r#"DROP ROLE "{user}""#)).await
+    }
+
     async fn pool(&self, db: &str) -> Result<Pool<Postgres>> {
         let options = self.options.clone().database(db);
         Ok(PgPoolOptions::new().max_connections(1).connect_with(options).await?)

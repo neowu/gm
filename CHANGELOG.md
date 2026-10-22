@@ -1,3 +1,8 @@
+# 0.7.1
+
+- db: add `gm db sync --force`, revoke privileges of users not in config, drop `PASSWORD` ones (`IAM` ones are deleted by gcloud)
+- db: `gm db status` shows users not in config
+
 # 0.7.0
 
 - db: add `gm db status`

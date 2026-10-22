@@ -27,6 +27,25 @@ struct User {
 }
 
 #[derive(Deserialize, Debug)]
+struct ListUsersResponse {
+    items: Option<Vec<SQLUser>>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SQLUser {
+    pub name: String,
+    #[serde(rename(deserialize = "type"))]
+    user_type: Option<String>,
+}
+
+impl SQLUser {
+    // CLOUD_IAM_USER, CLOUD_IAM_SERVICE_ACCOUNT, CLOUD_IAM_GROUP etc, BUILT_IN user has no type
+    pub fn iam(&self) -> bool {
+        self.user_type.as_deref().is_some_and(|t| t.starts_with("CLOUD_IAM"))
+    }
+}
+
+#[derive(Deserialize, Debug)]
 struct Operation {
     #[serde(rename(deserialize = "kind"))]
     _kind: String,
@@ -69,4 +88,13 @@ pub async fn set_password(project: &str, instance: &str, user: &str, password: &
         },
     )
     .await;
+}
+
+// cloud sql system roles (cloudsql*) are not listed
+pub async fn list_users(project: &str, instance: &str) -> Vec<SQLUser> {
+    let url = format!("https://sqladmin.googleapis.com/v1/projects/{project}/instances/{instance}/users");
+    let response: ListUsersResponse = gcloud::get(&url)
+        .await
+        .unwrap_or_else(|| panic!("instance not found, instance={instance}"));
+    response.items.unwrap_or_default()
 }

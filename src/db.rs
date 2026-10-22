@@ -42,6 +42,20 @@ impl Database {
         }
     }
 
+    pub async fn revoke_user_privileges(&mut self, user: &str, dbs: &[String]) -> Result<()> {
+        match self {
+            Database::MySQL(mysql) => mysql.revoke_user_privileges(user).await,
+            Database::PostgreSQL(postgresql) => postgresql.revoke_user_privileges(user, dbs).await,
+        }
+    }
+
+    pub async fn drop_user(&mut self, user: &str) -> Result<()> {
+        match self {
+            Database::MySQL(mysql) => mysql.drop_user(user).await,
+            Database::PostgreSQL(postgresql) => postgresql.drop_user(user).await,
+        }
+    }
+
     pub async fn db_exists(&mut self, db: &str) -> Result<bool> {
         match self {
             Database::MySQL(mysql) => mysql.db_exists(db).await,
