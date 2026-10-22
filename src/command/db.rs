@@ -29,7 +29,10 @@ pub struct DBCommand {
 #[derive(Subcommand)]
 enum Command {
     #[command(about = "sync db, users and kube endpoints")]
-    Sync,
+    Sync {
+        #[arg(long, help = "revoke privileges of users not in config and drop PASSWORD ones, otherwise keep them")]
+        force: bool,
+    },
     #[command(about = "show diff between db and config")]
     Status,
 }
@@ -45,18 +48,18 @@ impl DBCommand {
 
         let paths = db_config_paths(env_dir, self.config.as_deref());
         match &self.command {
-            Command::Sync => sync(env_dir, paths).await,
+            Command::Sync { force } => sync(env_dir, paths, *force).await,
             Command::Status => status(env_dir, paths).await,
         }
     }
 }
 
-async fn sync(env_dir: &Path, paths: Vec<PathBuf>) -> Result<()> {
+async fn sync(env_dir: &Path, paths: Vec<PathBuf>, force: bool) -> Result<()> {
     for path in paths {
         info!("sync db config, config={}", path.to_string_lossy());
         let config = load_config(&path);
         let instance = sql_admin::get_sql_instance(&config.project, &config.instance).await;
-        sync_db(&config, instance.public_address()).await?;
+        sync_db(&config, instance.public_address(), force).await?;
         sync_kube_endpoints(&config, env_dir, instance.private_address());
     }
     Ok(())
@@ -88,6 +91,9 @@ async fn status(env_dir: &Path, paths: Vec<PathBuf>) -> Result<()> {
                 Some(current) => print_diff(&format!("user {name}"), &current, &database.target_grants(user, &config.dbs)),
                 None => println!("user {name}: not found"),
             }
+        }
+        for user in users_not_in_config(&config).await {
+            println!("user {}: not in config", user.name);
         }
 
         let endpoint_path = env_dir.join(&config.endpoint.path);
@@ -129,11 +135,8 @@ fn load_config(path: &Path) -> DBConfig {
     config
 }
 
-async fn sync_db(config: &DBConfig, public_ip: &str) -> Result<()> {
-    let root_user = match config.db_type {
-        DBType::MySQL => "root",
-        DBType::PostgreSQL => "postgres",
-    };
+async fn sync_db(config: &DBConfig, public_ip: &str, force: bool) -> Result<()> {
+    let root_user = root_user(&config.db_type);
     let root_password = secret_manager::get_or_create(&config.project, &config.root_secret, &config.env).await;
     sql_admin::set_password(&config.project, &config.instance, root_user, &root_password).await;
 
@@ -151,7 +154,38 @@ async fn sync_db(config: &DBConfig, public_ip: &str) -> Result<()> {
         database.grant_user_privileges(user, &config.dbs).await?;
     }
 
+    for user in users_not_in_config(config).await {
+        let name = &user.name;
+        if !force {
+            info!(user = name, "keep user not in config, use --force to revoke");
+            continue;
+        }
+        database.revoke_user_privileges(name, &config.dbs).await?;
+        if user.iam() {
+            // IAM user is created by gcloud, so delete it by gcloud as well (e.g. terraform)
+            info!(user = name, "revoked IAM user privileges, delete user by gcloud");
+        } else {
+            database.drop_user(name).await?;
+        }
+    }
+
     Ok(())
+}
+
+async fn users_not_in_config(config: &DBConfig) -> Vec<sql_admin::SQLUser> {
+    let root_user = root_user(&config.db_type);
+    sql_admin::list_users(&config.project, &config.instance)
+        .await
+        .into_iter()
+        .filter(|user| user.name != root_user && !config.users.iter().any(|u| u.name == user.name))
+        .collect()
+}
+
+fn root_user(db_type: &DBType) -> &'static str {
+    match db_type {
+        DBType::MySQL => "root",
+        DBType::PostgreSQL => "postgres",
+    }
 }
 
 fn sync_kube_endpoints(config: &DBConfig, env_dir: &Path, private_ip: &str) {

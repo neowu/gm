@@ -8,7 +8,7 @@ provide "db" subcommand for gcloud sql (MySQL / PostgreSQL), config: `{env}/db/*
 - user `db` is optional, default to all `dbs` in config
 - MySQL user name must be no longer than 32
 
-## `gm db sync` (idempotent)
+## `gm db sync [--force]` (idempotent)
 
 for each config file
 
@@ -21,7 +21,11 @@ for each config file
    - `PASSWORD` user: get or generate password in `secret`, create user if not exist (MySQL also resets password to secret, PostgreSQL doesn't change existing user)
    - `IAM` user: user is expected to be created by gcloud, only grant privileges
    - grant privileges by `role` (see roles table) on target dbs, additive only (never revoke)
-5. write kube headless Service + EndpointSlice + Endpoints to `{env}/{endpoint.path}`, pointing to instance private ip, so apps access db via `{endpoint.name}.{endpoint.ns}`
+5. for each user in instance but not in config (listed by sql admin api, so cloud sql system roles are excluded; root user skipped)
+   - without `--force`, keep it (safe on prod), reported by `status`
+   - with `--force`, revoke privileges managed by sync (PostgreSQL: role membership except gcloud managed ones, database / `public` schema acl on config dbs; MySQL: `REVOKE ALL PRIVILEGES, GRANT OPTION`)
+   - then `PASSWORD` user is dropped; `IAM` user is kept, as it's created by gcloud, delete it by gcloud as well (e.g. terraform `google_sql_user`); postgres refuses to drop role with acl, so run `sync --force` before deleting by gcloud
+6. write kube headless Service + EndpointSlice + Endpoints to `{env}/{endpoint.path}`, pointing to instance private ip, so apps access db via `{endpoint.name}.{endpoint.ns}`
 
 ## `gm db status`
 
@@ -30,6 +34,7 @@ show diff between db and config, read only, connect as root with password from `
 - for each config file, print `instance {instance}:` then
 - for each db: `up to date` or `not found`
 - for each user: `up to date`, `not found`, or grants diff
+- for each user in instance but not in config: `not in config` (handled by `sync --force`)
   - MySQL: `SHOW GRANTS` split per privilege (`USAGE`, `SHOW_ROUTINE` and cloud sql partial revokes on `mysql` / `sys` ignored; `SHOW_ROUTINE` is auto granted by mysql upgrade to users with global `SELECT` and cloud sql root can't revoke it), compare with privileges of `role` on target scope; extra grants implied by existing global grants are not shown (db scope privilege also granted on `*.*`, e.g. left by old gm granting MIGRATION per db; `FLUSH_PRIVILEGES` auto granted by mysql upgrade to users with global `RELOAD`)
   - PostgreSQL: only privileges managed by sync, on config dbs: database acl, `public` schema acl, role membership (except gcloud managed `cloudsqliamuser` / `cloudsqliamserviceaccount`), `REPLICATION` attribute
 - diff: `-` exists in db but not in config (sync never revokes, so it stays until removed manually), `+` in config but not in db

@@ -50,6 +50,20 @@ impl MySQL {
         Ok(())
     }
 
+    pub async fn revoke_user_privileges(&mut self, user: &str) -> Result<()> {
+        info!(user, "revoke user privileges");
+        let statement = format!("REVOKE ALL PRIVILEGES, GRANT OPTION FROM '{user}'@'%'");
+        sqlx::query(&statement).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn drop_user(&mut self, user: &str) -> Result<()> {
+        info!(user, "drop user");
+        let statement = format!("DROP USER '{user}'@'%'");
+        sqlx::query(&statement).execute(&self.pool).await?;
+        Ok(())
+    }
+
     pub async fn db_exists(&mut self, db: &str) -> Result<bool> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(1) FROM information_schema.schemata WHERE schema_name = ?")
             .bind(db)
